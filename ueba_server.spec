@@ -87,7 +87,7 @@ a = Analysis(
         'keras.src.backend.torch',  # avoid keras torch probe
     ],
     noarchive=False,
-    optimize=2,
+    optimize=0, 
 )
 
 pyz = PYZ(a.pure)
