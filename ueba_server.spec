@@ -36,15 +36,21 @@ hiddenimports = [
     'kafka_consumer.SIEM_connector',
     'kafka_consumer.SOAR_connector',
     'kafka_consumer.config_consumer',
+
     'api_server',
     'db_connector',
+
     'rabbit_mq.send',
     'structures.structures',
 ]
 
-# Only collect what truly needs it. Let PyInstaller hooks handle pandas/sklearn/tensorflow/keras.
+# core scientific stack
 hiddenimports += optional_collect_submodules('numpy')
+hiddenimports += optional_collect_submodules('pandas')
+hiddenimports += optional_collect_submodules('sklearn')
 hiddenimports += optional_collect_submodules('joblib')
+hiddenimports += optional_collect_submodules('tensorflow')
+hiddenimports += optional_collect_submodules('keras')
 
 # ---------- data files ----------
 datas  = []
@@ -69,23 +75,19 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],          # rely on built-in + hooks-contrib if installed
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # trim size / silence missing-test noise
         'matplotlib','seaborn',
         'torch','torchvision','torchaudio',
         'ipykernel','jupyter','notebook',
         'xgboost','numba',
-        'pandas.tests',
-        'sklearn.tests',
-        # keras/tensorflow internals & legacy probes that aren't needed at runtime
-        'keras.src.backend.torch',
-        'tensorflow.__internal__',
+        'pandas.tests',             # remove pytest warning
+        'keras.src.backend.torch',  # avoid keras torch probe
     ],
     noarchive=False,
-    optimize=0,
+    optimize=2,
 )
 
 pyz = PYZ(a.pure)
