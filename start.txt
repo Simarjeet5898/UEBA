@@ -1,0 +1,146 @@
+kafka start
+
+
+bin/zookeeper-server-start.sh config/zookeeper.properties
+
+
+bin/kafka-server-start.sh config/server.properties
+
+
+
+
+
+
+
+########## for running gui
+1. open the frontend code and in that App.js file you have to run with command: npm start
+2. in config.js of front end code change export const BASE_URL = "http://192.168.242.36:8000"; 
+	
+3. open your back end code and in that api_server.py
+	with command: uvicorn api_server:app --host 192.168.242.36 --port 8000 --reload   #check ip
+
+
+
+########### to run ueba as service in other linux machine:
+1. copy this tar file
+2. extract it: tar -xvzf ~/ueba-client-bundle.tar.gz
+3. Run the installer : cd ~/ueba-client-bundle
+./installer.sh
+
+This will:
+
+    Create virtual environment
+
+    Install .whl dependencies
+
+    Set up the script
+    
+    
+############ TO make exe for current version............
+1. producer_main for client.exe: pyinstaller -F -n ueba_client --clean --strip kafka_producer/producer_main.py
+				To rebuild client exe (after any change in producer files): 
+				cd /home/simar/Documents/UEBA/UEBA_BACKEND
+				pyinstaller --clean ueba_client.spec
+				
+2. consumer_main for server.exe : 
+	To rebuild server exe (after any change in consumer files or related):
+	cd /home/simar/Documents/UEBA/UEBA_BACKEND
+	pyinstaller --clean ueba_server.spec
+
+######### To make version compatible
+This is what done for first time....
+Install docker
+Step 1. cd /home/simar/Documents/UEBA/UEBA_BACKEND
+Step 2: start a container from your project root:
+	sudo docker run --rm -it \
+  -v /home/simar/Documents/UEBA/UEBA_BACKEND:/work \r.
+  -w /work \
+  python:3.12-bullseye bash
+
+
+Step 3: install Install dependencies (inside container):
+	pip install -r requirements.txt
+	pip install pyinstaller
+Step 4: Build Client and server exe:
+	pyinstaller --clean ueba_client.spec
+	pyinstaller --clean ueba_server.spec
+	
+	ls -l (to check)
+	sudo chown -R simar:simar build dist
+
+	
+Exit the container
+
+Also need to change ownership: simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND$ sudo chown -R simar:simar /home/simar/Documents/UEBA/UEBA_BACKEND/dist
+if required: sudo chmod +x ueba_client ueba_server
+
+
+
+simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND/dist$ ./ueba_server 
+[Dispatcher] Bind failed 127.0.0.1:5000 -> [Errno 98] Address already in use
+
+# see who holds it
+ss -ulpn | grep ':5000'
+lsof -iUDP -nP | grep ':5000'
+fuser -v 5000/udp
+
+# kill holders (any of these work)
+fuser -k 5000/udp
+lsof -t -iUDP:5000 | xargs -r kill -9
+pkill -f 'udp_dispatcher|consumer_main|ueba_server|kafka_consumer|uvicorn'
+
+
+# verify if the code is free
+ss -ulpn | grep ':5000' || echo "UDP 5000 is free"
+
+
+Extra:
+okay i have ran this inside container: root@fcf99bcd03fc:/work# cd /work # or wherever your UEBA_BACKEND is mounted mkdir -p hooks # create a hooks folder if not exists cat > hooks/runtime_force_tf_backend.py <<'PY' import os os.environ.setdefault("KERAS_BACKEND", "tensorflow") os.environ.setdefault("KERAS_BACKEND_AUTO", "0") os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1") os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3") PY root@fcf99bcd03fc:/work#
+
+
+
+for command execution you need to do this: 
+nano ~/.bashrc 
+then in that add this at bottom
+
+# --- UEBA command logging setup ---
+# Store timestamps with each command
+export HISTTIMEFORMAT="%s "
+
+# Keep a large history
+export HISTFILESIZE=20000
+export HISTSIZE=10000
+
+# Don’t overwrite history when multiple shells are open
+shopt -s histappend
+
+# Write history immediately after each command and read new ones
+PROMPT_COMMAND="history -a; history -n; $PROMPT_COMMAND"
+
+    
+and then at last: source ~/.bashrc
+
+
+
+
+
+
+
+
+/bin/sh: 1: sensors: not found
+do: sudo apt update
+sudo apt install lm-sensors -y
+
+Open Windows Count Error: [Errno 2] No such file or directory: 'wmctrl'
+sudo apt install wmctrl -y
+
+
+
+
+    
+
+
+
+
+
+

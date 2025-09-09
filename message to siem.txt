@@ -1,0 +1,36 @@
+message to siem:
+
+MESSAGE": {
+    "eventId": uuid.uuid4().hex,
+     "msgId": "5",
+    "srcId": "2",
+    # Split out the current timestamp
+    "year":   now.year,
+    "month":  now.month,
+    "day":    now.day,
+    "hour":   now.hour,	
+    "minute": now.minute,
+    "second": now.second,
+    "eventType": "6",
+    "eventName": "2",
+    "severity": "high",
+    "eventReason": "Multiple connection attmept for failed login",
+    "attackerIp": "192.168.1.10",
+    "attackerInfo": "Red Team",
+    "deviceHostname": "deviceHostname",
+    "deviceUsername": "deviceUsername",
+    "serviceName": "serviceName",
+    "servicePath": "servicePath",
+    "deviceType": "deviceType",
+    "destinationIp": "10.0.0.100",
+    "deviceMacId": "deviceMacId",
+    "deviceIp": "deviceIpAddress",
+    "devicetype": "devicetype",
+    "logText": "2025-06-11T14:18:10.900286+05:30 jyoti systemd-logind[1292]: New session 49 of user jyoti.",
+    "url": "http://10.29.40.12:34335//events"
+    }
+}
+
+
+
+

@@ -1,0 +1,16 @@
+{
+  "monitored_dirs": ["/home", "/mnt","/opt","/var/www"],
+  "sensitive_dirs": ["/home/simar/testing", "/mnt/secure"],
+    "device_exclude_patterns": ["Linux Foundation.*root hub"],
+    "baseline_devices": [
+        "1d6b:0003:006:001",
+        "1d6b:0002:005:001",
+        "1d6b:0003:002:001",
+        "06cb:00df:001:003",
+        "8087:0026:001:004",
+        "1d6b:0002:001:001",
+        "1d6b:0003:004:001",
+        "1d6b:0002:003:001"
+      ]
+  }
+  

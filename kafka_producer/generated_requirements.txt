@@ -1,0 +1,12 @@
+kafka_python==2.0.5
+mysql_connector_repackaged==0.3.1
+pdfminer_six==20250506
+psutil==5.9.8
+python_dateutil==2.9.0.post0
+python_docx==1.1.2
+pytz==2025.1
+pyudev==0.24.3
+Requests==2.32.4
+watchdog==6.0.0
+win32gui==221.6
+wmi==1.5.1

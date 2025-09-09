@@ -1,0 +1,12 @@
+{
+  "code-runner.executorMap": {
+    "python": "/home/simar/Documents/UEBA/UEBA_BACKEND/ueba_env/bin/python"
+  },
+  "code-runner.runInTerminal": true,
+  "code-runner.preserveFocus": false,
+  "code-runner.clearPreviousOutput": false,
+  "code-runner.runInNewTerminal": true,
+  "CodeGPT.apiKey": "Ollama",
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python-envs.pythonProjects": []
+}

@@ -1,0 +1,7 @@
+username,timestamp,event_type,details,hostname,ip_address
+simar,2025-06-23 10:14:34,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1
+simar,2025-06-23 10:14:34,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1
+simar,2025-06-23 10:14:34,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1
+simar,2025-06-23 10:14:34,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1
+simar,2025-06-23 10:14:34,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1
+testuser1,2025-06-24 10:25:14,LOGIN_EVENT,local,simar-ThinkBook-14-G2-ITL,127.0.1.1

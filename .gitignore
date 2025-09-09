@@ -1,0 +1,22 @@
+venv/
+myenv/
+# Ignore virtual environment
+ueba_env/
+venv/
+.env/
+
+# Ignore Python cache and compiled files
+__pycache__/
+*.pyc
+
+# Ignore logs and temp files
+*.log
+*.tmp
+
+dist/
+build/
+*.exe
+*.pkl
+*.joblib
+
+sensitivity_model/

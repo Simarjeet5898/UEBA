@@ -1,0 +1,96 @@
+{
+  "04:7c:16:f9:a6:58": {
+    "usb_devices": [
+      {
+        "device_id": "1d6b:0002:001:001",
+        "name": "Linux Foundation 2.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-16T15:36:00.425899",
+        "is_connected": true
+      },
+      {
+        "device_id": "17ef:608d:001:002",
+        "name": "Lenovo Optical Mouse",
+        "port_number": "002",
+        "connection_time": "2025-05-16T15:36:00.425899",
+        "is_connected": true
+      },
+      {
+        "device_id": "17ef:6099:001:003",
+        "name": "Lenovo Lenovo Traditional USB Keyboard",
+        "port_number": "003",
+        "connection_time": "2025-05-16T15:36:00.425899",
+        "is_connected": true
+      },
+      {
+        "device_id": "0bda:f179:001:004",
+        "name": "Realtek Semiconductor Corp. RTL8188FTV 802.11b/g/n 1T1R 2.4G WLAN Adapter",
+        "port_number": "004",
+        "connection_time": "2025-05-16T15:36:00.425899",
+        "is_connected": true
+      },
+      {
+        "device_id": "1d6b:0003:002:001",
+        "name": "Linux Foundation 3.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-16T15:36:00.425899",
+        "is_connected": true
+      }
+    ],
+    "last_seen": "2025-05-16T10:06:00.452866+00:00"
+  },
+  "30:13:8b:77:6d:bf": {
+    "usb_devices": [
+      {
+        "device_id": "1d6b:0002:001:001",
+        "name": "Linux Foundation 2.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "1d6b:0003:002:001",
+        "name": "Linux Foundation 3.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "1d6b:0002:003:001",
+        "name": "Linux Foundation 2.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "05c8:0b06:003:002",
+        "name": "Cheng Uei Precision Industry Co., Ltd (Foxlink) HP HD Camera",
+        "port_number": "002",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "06cb:00f0:003:003",
+        "name": "Synaptics, Inc.",
+        "port_number": "003",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "8087:0033:003:004",
+        "name": "Intel Corp. AX211 Bluetooth",
+        "port_number": "004",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      },
+      {
+        "device_id": "1d6b:0003:004:001",
+        "name": "Linux Foundation 3.0 root hub",
+        "port_number": "001",
+        "connection_time": "2025-05-19T15:50:40.176225",
+        "is_connected": true
+      }
+    ],
+    "last_seen": "2025-05-19T10:20:40.181616+00:00"
+  }
+}

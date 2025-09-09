@@ -1,0 +1,107 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+from pathlib import Path
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
+# ---------- helpers ----------
+def optional_collect_submodules(pkg):
+    try:
+        return collect_submodules(pkg)
+    except Exception:
+        return []
+
+def optional_collect_data(pkg):
+    try:
+        return collect_data_files(pkg)
+    except Exception:
+        return []
+
+# ---------- paths (no __file__ here) ----------
+BASE_DIR = Path.cwd().resolve()
+AI_DIR   = (BASE_DIR / 'ai_models').resolve()
+
+# ---------- hiddenimports ----------
+hiddenimports = [
+    # kafka_consumer modules
+    'kafka_consumer.udp_dispatcher',
+    'kafka_consumer.application_usage_consumer_udp',
+    'kafka_consumer.authentication_monitoring_consumer_udp',
+    'kafka_consumer.process_monitoring_consumer_udp',
+    'kafka_consumer.SRU_consumer_udp',
+    'kafka_consumer.login_events_consumer_udp',
+    'kafka_consumer.connected_entities_consumer_udp',
+    'kafka_consumer.file_sys_monitoring_consumer_udp',
+    'kafka_consumer.helper',
+    'kafka_consumer.SIEM_connector',
+    'kafka_consumer.SOAR_connector',
+    'kafka_consumer.config_consumer',
+
+    # root-level modules
+    'api_server',
+    'db_connector',
+
+    # subpackages
+    'rabbit_mq.send',
+    'structures.structures',
+]
+
+# scientific stack (safe if installed)
+hiddenimports += optional_collect_submodules('numpy')
+hiddenimports += optional_collect_submodules('pandas')
+hiddenimports += optional_collect_submodules('sklearn')
+hiddenimports += optional_collect_submodules('joblib')
+hiddenimports += optional_collect_submodules('tensorflow')
+hiddenimports += optional_collect_submodules('keras')
+
+# ---------- data files ----------
+datas  = []
+datas += optional_collect_data('numpy')
+datas += optional_collect_data('pandas')
+datas += optional_collect_data('sklearn')
+
+# bundle entire ai_models tree
+if AI_DIR.exists():
+    datas += [
+        (str(p), str(p.relative_to(BASE_DIR)))
+        for p in AI_DIR.rglob('*') if p.is_file()
+    ]
+
+# ---------- analysis ----------
+a = Analysis(
+    ['kafka_consumer/consumer_main.py'],
+    pathex=[
+        str(BASE_DIR / 'kafka_consumer'),
+        str(BASE_DIR),  # for structures/structures.py etc.
+    ],
+    binaries=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        'torch', 'torchvision', 'torchaudio',
+        'jupyter',
+        'xgboost', 'numba',
+    ],
+    noarchive=False,
+    optimize=2,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='ueba_server',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=True,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=True,
+)

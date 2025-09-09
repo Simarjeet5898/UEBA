@@ -1,0 +1,7 @@
+username,login_time,auth_type,hostname,remote_ip,session_duration_seconds,hour,day_of_week,is_weekend,is_abnormal
+simar,2025-06-23 10:14:34,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Monday,False,0
+simar,2025-06-23 10:14:34,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Monday,False,0
+simar,2025-06-23 10:14:34,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Monday,False,0
+simar,2025-06-23 10:14:34,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Monday,False,0
+testuser1,2025-06-24 10:25:14,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Tuesday,False,0
+simar,2025-06-23 10:14:34,local,simar-ThinkBook-14-G2-ITL,127.0.1.1,,10,Monday,False,0
