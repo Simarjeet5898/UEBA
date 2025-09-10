@@ -40,7 +40,7 @@ metrics = {
     "disk_read_rate": 1.2,
     "disk_write_rate": 0.8,
     "avg_load": 0.5,
-    "network_bytes_sent": 1024,
+    "network_bytes_sent": 1024, 
     "network_bytes_recv": 2048,
     "context_switches": 10,
     "system_temperature": 55.0,

@@ -1,17 +1,4 @@
 {
-  "monitored_dirs": ["/home", "/mnt", "/opt", "/var/www"],
-  "sensitive_dirs": ["/home/", "/mnt/secure","/opt"],
-  "device_exclude_patterns": ["Linux Foundation.*root hub"],
-  "baseline_devices": [
-    "1d6b:0003:006:001",
-    "1d6b:0002:005:001",
-    "1d6b:0003:002:001",
-    "06cb:00df:001:003",
-    "8087:0026:001:004",
-    "1d6b:0002:001:001",
-    "1d6b:0003:004:001",
-    "1d6b:0002:003:001"
-  ],
 
   "destinations": {
     "WEB": { "ip": "10.10.100.56", "port": 9001 },
@@ -85,7 +72,8 @@
   "host": "10.229.40.154",
   "port": 8081
   },
-
+  "monitored_dirs": ["/home", "/mnt", "/opt", "/var/www"],
+  "sensitive_dirs": ["/home/", "/mnt/secure","/opt"],
 
   "mappings": {
     "event_type": {
@@ -185,7 +173,7 @@
   "TICKET_CREATED":61,"HOST_ISOLATED":62,"THREAT_ENRICHMENT":63,"IOC_MATCHED":64,"REPUTATION_LOOKUP":65,"THREAT_FEED_UPDATE":66,"DB_UNUSUAL_QUERIES":67,"DB_FAILED_TRANSACTIONS":68,
   "DB_PRIVILEGE_CHANGES":69,"DB_POLICY_BREACH":70,"DB_COMPROMISED_ACCOUNT":71,"DB_DATA_EXPORT_EVENTS":72,"DB_CREATE_DB_TABLE":73,"DB_DROP_DB_TABLE":74,"DB_UPDATE_DB_TABLE":75,
   "DB_ACCOUNT_LOCKOUT":76,"DB_DDOSS_ATTACK":77,"DB_USER_CREATION":78,"DB_USER_DELETION":79,"DB_IMPORT_EVENT":80,"LARGE_NUMBER_OF_EXECUTIONS":81,"SUSPICIOUS_ACCESS_TIME":82,
-  "EXCESSIVE_QUERIES":83,"BULK_DATA_MODIFICATIONS":84,"BACKUP_FAILURES":85,"DOS_ATTACK_DETECTED":86
+  "EXCESSIVE_QUERIES":83,"BULK_DATA_MODIFICATIONS":84,"BACKUP_FAILURES":85,"DOS_ATTACK_DETECTED":86,"ANOMALOUS_APPLICATION_USAGE":87
 }, 
 
 "event_type": {

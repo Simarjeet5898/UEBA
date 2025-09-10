@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Application Usage Monitoring Consumer
 
@@ -58,8 +57,7 @@ Author: [Your Name or Team]
 Date: [Insert Date]
 """
 
-    #!/usr/bin/env python3
-import json
+
 import psycopg2
 # from kafka import KafkaConsumer
 import socket
@@ -77,6 +75,7 @@ import pandas as pd
 import joblib
 LOG = logging.getLogger("Application Usage Consumer")
 # LOG.setLevel(logging.INFO)  
+import json
 
 warnings.filterwarnings("ignore")
 

@@ -1,4 +1,4 @@
-# #!/usr/bin/env python3
+
 # import socket
 # import json
 # from multiprocessing import Process
@@ -101,8 +101,6 @@
 # if __name__ == "__main__":
 #     main()
 
-
-#!/usr/bin/env python3
 import os, sys, json, socket, time, signal, threading, atexit, fcntl
 
 CONFIG_PATH = os.environ.get("UEBA_CONFIG", "/home/config.json")

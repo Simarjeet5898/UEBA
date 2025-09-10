@@ -70,6 +70,25 @@ Step 4: Build Client and server exe:
 
 	
 Exit the container
+simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND$ # on host
+sudo docker start -ai ueba-dev
+
+simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND$ sudo docker commit ueba-dev ueba:py312-snap1
+sha256:3b738a7e6d7bfd6cb97169752b8384184a01318616b09f0587dfe61479ab412b
+
+
+####### AFTER REBOOT STEPS
+1. open terminal: sudo docker start -ai ueba-snap
+
+If you ever see “No such container: ueba-snap”:
+sudo docker run -it --name ueba-snap -v ~/Documents/UEBA/UEBA_BACKEND:/work ueba:py312-snap1 bash
+
+cd ~/Documents/UEBA/UEBA_BACKEND
+sudo docker start -ai ueba-snap
+
+source /opt/conda/etc/profile.d/conda.sh
+conda activate ueba_env
+
 
 Also need to change ownership: simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND$ sudo chown -R simar:simar /home/simar/Documents/UEBA/UEBA_BACKEND/dist
 if required: sudo chmod +x ueba_client ueba_server

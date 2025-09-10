@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 Application Usage Monitoring Consumer
 
@@ -58,7 +58,6 @@ Author: [Your Name or Team]
 Date: [Insert Date]
 """
 
-    #!/usr/bin/env python3
 import json
 import psycopg2
 # from kafka import KafkaConsumer

@@ -1,0 +1,8 @@
+name: ueba_env
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - numpy
+  - h5py
+prefix: /opt/conda/envs/ueba_env
