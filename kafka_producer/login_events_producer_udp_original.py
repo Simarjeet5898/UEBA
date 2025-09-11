@@ -37,7 +37,8 @@ import uuid
 import psutil
 import platform
 from datetime import datetime,timedelta
-# from kafka import KafkaProducer 
+# from kafka import KafkaProducer
+import socket   
 import subprocess
 import re
 import requests
@@ -107,10 +108,7 @@ def get_geolocation():
         "geo_city": "Unknown"
     }
 
-# LOGIN_STATE = {}  # username → login_time
-# (username, terminal, resolved_remote_ip) -> started_epoch
-LOGIN_STATE = {}
-
+LOGIN_STATE = {}  # username → login_time
 # GEO_INFO = get_geolocation()
 
 
@@ -197,28 +195,6 @@ def get_last_login(username):
         pass
     return None
 
-def get_current_login_from_last(username, terminal):
-    """
-    Return '%Y-%m-%d %H:%M:%S' for the user's current 'still logged in' start time from `last -F`.
-    Ignores terminal filtering to avoid seat0/login screen/:0 mismatches.
-    """
-    try:
-        out = subprocess.run(["last", "-F", "-n", "200", username],
-                             capture_output=True, text=True, timeout=2).stdout
-        for line in out.splitlines():
-            if "still logged in" not in line:
-                continue
-            # e.g. "simar  tty2  tty2  Thu Sep  4 10:31:51 2025   still logged in"
-            m = re.search(r"\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}", line)
-            if m:
-                dt = datetime.strptime(m.group(0), "%a %b %d %H:%M:%S %Y")
-                return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except Exception:
-        pass
-    return None
-
-
-
 shutdown_handled = False  # Global flag (ensure this is at the top with your globals)
 
 
@@ -231,9 +207,9 @@ def handle_shutdown_signal(signum=None, frame=None):
     now = datetime.now()
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
-    for (username, terminal, remote_ip), started_epoch in LOGIN_STATE.items():
+    for username, (login_timestamp, remote_ip, terminal) in LOGIN_STATE.items():
         logout_time = time.time()
-        duration = int(logout_time - started_epoch)
+        duration = int(logout_time - login_timestamp)
         last_login_time = get_last_login(username)
 
         is_remote = remote_ip not in ("", "Unknown", "localhost", "127.0.0.1", "127.0.1.1")
@@ -248,7 +224,7 @@ def handle_shutdown_signal(signum=None, frame=None):
             "topic": "login-events",
             "event_type": "logout",
             "username": username,
-            "login_time": datetime.fromtimestamp(started_epoch).strftime("%Y-%m-%d %H:%M:%S"),
+            "login_time": datetime.fromtimestamp(login_timestamp).strftime("%Y-%m-%d %H:%M:%S"),
             "logout_time": now_str,
             "last_login_time": last_login_time,
             "session_duration_seconds": duration,
@@ -271,7 +247,6 @@ def handle_shutdown_signal(signum=None, frame=None):
 
 
 
-
 def main():
     global LOGIN_STATE
     print("\033[1;32m  !!!!!Login Events Producer started!!!!!!\033[0m")
@@ -281,13 +256,24 @@ def main():
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_users = get_current_users()
             recent_remote_ips = get_recent_remote_logins()
+            # log(f"[DEBUG] recent_remote_ips: {recent_remote_ips}")
 
-            for username, (started_epoch, remote_ip, terminal) in current_users.items():
+            # Detect new logins
+            for username, (login_time, remote_ip, terminal) in current_users.items():
+                if username == "testdormantuser":
+                    last_login_time = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    last_login_time = get_last_login(username)
+
                 terminal = terminal or ""
                 original_ip = remote_ip or "Unknown"
                 remote_ip = recent_remote_ips.get(username, original_ip)
 
                 is_remote = remote_ip not in ("", "Unknown", "localhost", "127.0.0.1", "127.0.1.1")
+                # print(f"Login... Username: {username}, Terminal: {terminal}, remote_ip: {remote_ip}, is_remote: {is_remote}")
+                
+                # log(f"[DEBUG] Username: {username}, Terminal: {terminal}, Original IP: {original_ip}, Overridden IP: {remote_ip}")
+
                 if is_remote:
                     auth_type = "ssh"
                 elif terminal.startswith("tty"):
@@ -297,59 +283,67 @@ def main():
                 else:
                     auth_type = "local"
 
-                # session identity (prevents collisions across tty/seat/ip)
-                session_key = (username, terminal, remote_ip or "")
+                system_info = get_system_info()
+                # geo_info = get_geolocation()
+                source_mac = get_mac_address(remote_ip)
+                source_hostname = resolve_hostname(remote_ip)
 
-                # last_login_time logic stays as-is
-                if username == "testdormantuser":
-                    last_login_time = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d %H:%M:%S")
-                else:
-                    last_login_time = get_last_login(username)
+                if username not in LOGIN_STATE:
+                    if is_remote:
+                        msg = {
+                            "topic": "login-events",
+                            "event_type": "login",
+                            "username": f"{username}",#_{system_info.get('active_mac', '00:00:00:00:00:00')}",
+                            "login_time": datetime.fromtimestamp(login_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_login_time": last_login_time,
+                            "timestamp": now_str,
+                            "remote_ip": remote_ip,
+                            "auth_type": auth_type,
+                            "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
+                            "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
+                            # "source_os": get_source_os()
+                            # **geo_info
+                        }
+                        msg["source_os"] = get_source_os() 
+                        print(f"[22222222DEBUG LOGIN MSG] {json.dumps(msg, indent=2)}")
+                    else:
+                        msg = {
+                            "topic": "login-events",
+                            "event_type": "login",
+                            # "username": f"{username}_{system_info.get('active_mac', '00:00:00:00:00:00')}",
+                            "username": f"{username}",
+                            "login_time": datetime.fromtimestamp(login_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            "last_login_time": last_login_time,
+                            "timestamp": now_str,
+                            "remote_ip": remote_ip,
+                            "auth_type": auth_type,
+                            "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
+                            "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
+                            **system_info,
+                            # **geo_info,
+                            # "source_os": get_source_os()
+                        }
+                        msg["source_os"] = get_source_os() 
+                        print(f"[LOGIN MSG] {json.dumps(msg, indent=2)}")
 
-                # prefer wtmp/`last` start time for ITP parity; fallback to psutil.started
-                login_time_str = get_current_login_from_last(username, terminal)
-                if not login_time_str:
-                    login_time_str = datetime.fromtimestamp(started_epoch).strftime("%Y-%m-%d %H:%M:%S")
-
-                if session_key not in LOGIN_STATE:
-                    system_info = get_system_info()
-                    source_mac = get_mac_address(remote_ip)
-                    source_hostname = resolve_hostname(remote_ip)
-
-                    msg = {
-                        "topic": "login-events",
-                        "event_type": "login",
-                        "username": username,
-                        "login_time": login_time_str,
-                        "last_login_time": last_login_time,
-                        "timestamp": now_str,
-                        "remote_ip": remote_ip,
-                        "auth_type": auth_type,
-                        "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
-                        "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
-                        **system_info,
-                    }
-                    msg["source_os"] = get_source_os()
-                    print(f"[LOGIN MSG] {json.dumps(msg, indent=2)}")
+                    # producer.send(KAFKA_TOPIC, value=msg)
                     sock.sendto(json.dumps(msg).encode("utf-8"), (UDP_IP, UDP_PORT))
 
-
                     # log(f" Sent login event: {msg}")
-                    
-            current_keys = set()
-            for u, (st, rip, term) in current_users.items():
-                cur_ip = recent_remote_ips.get(u, rip or "Unknown")
-                current_keys.add((u, term or "", cur_ip or ""))
 
-            # Detect logouts per session_key
-            for (u, t, r), started_epoch in list(LOGIN_STATE.items()):
-                if (u, t, r) not in current_keys:
+            # Detect logouts
+            for username, (login_timestamp, remote_ip, terminal) in LOGIN_STATE.items():
+                if username not in current_users:
                     logout_time = time.time()
-                    duration = int(logout_time - started_epoch)
+                    duration = int(logout_time - login_timestamp)
 
-                    terminal = t or ""
-                    remote_ip = r or "Unknown"
+                    terminal = terminal or ""
+                    original_ip = remote_ip or "Unknown"
+                    remote_ip = recent_remote_ips.get(username, original_ip)
+
                     is_remote = remote_ip not in ("", "Unknown", "localhost", "127.0.0.1", "127.0.1.1")
+                    print(f"Logout...[DEBUG][AUTH_TYPE] Username: {username}, Terminal: {terminal}, remote_ip: {remote_ip}, is_remote: {is_remote}")
+
                     if is_remote:
                         auth_type = "ssh"
                     elif terminal.startswith("tty"):
@@ -360,36 +354,55 @@ def main():
                         auth_type = "local"
 
                     system_info = get_system_info()
+                    # geo_info = get_geolocation()
                     source_mac = get_mac_address(remote_ip)
                     source_hostname = resolve_hostname(remote_ip)
 
-                    msg = {
-                        "topic": "login-events",
-                        "event_type": "logout",
-                        "username": u,
-                        "login_time": datetime.fromtimestamp(started_epoch).strftime("%Y-%m-%d %H:%M:%S"),
-                        "logout_time": datetime.fromtimestamp(logout_time).strftime("%Y-%m-%d %H:%M:%S"),
-                        "session_duration_seconds": duration,
-                        "timestamp": now_str,
-                        "remote_ip": remote_ip,
-                        "auth_type": auth_type,
-                        "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
-                        "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
-                        **system_info,
-                    }
-                    msg["source_os"] = get_source_os()
-                    print(f"[LOGOUT MSG] {json.dumps(msg, indent=2)}")
+                    if is_remote:
+                        msg = {
+                            "topic": "login-events",
+                            "event_type": "logout",
+                            "username": f"{username}",#_{system_info.get('active_mac', '00:00:00:00:00:00')}",
+                            "login_time": datetime.fromtimestamp(login_timestamp).strftime("%Y-%m-%d %H:%M:%S"),
+                            "logout_time": datetime.fromtimestamp(logout_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            "session_duration_seconds": duration,
+                            "timestamp": now_str,
+                            "remote_ip": remote_ip,
+                            "auth_type": auth_type,
+                            "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
+                            "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
+                            # "source_os": get_source_os(),
+                            # **geo_info
+                        }
+                        msg["source_os"] = get_source_os() 
+                        print(f"[44444444444DEBUG LOGIN MSG] {json.dumps(msg, indent=2)}")
+                    else:
+                        msg = {
+                            "topic": "login-events",
+                            "event_type": "logout",
+                            # "username": f"{username}_{system_info.get('active_mac', '00:00:00:00:00:00')}",
+                            "username": f"{username}",
+                            "login_time": datetime.fromtimestamp(login_timestamp).strftime("%Y-%m-%d %H:%M:%S"),
+                            "logout_time": datetime.fromtimestamp(logout_time).strftime("%Y-%m-%d %H:%M:%S"),
+                            "session_duration_seconds": duration,
+                            "timestamp": now_str,
+                            "remote_ip": remote_ip,
+                            "auth_type": auth_type,
+                            "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
+                            "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
+                            **system_info,
+                            # **geo_info,
+                            # "source_os": get_source_os()
+                        }
+                        msg["source_os"] = get_source_os() 
+                        print(f"[5555555555DEBUG LOGIN MSG] {json.dumps(msg, indent=2)}")
+                    # producer.send(KAFKA_TOPIC, value=msg)
                     sock.sendto(json.dumps(msg).encode("utf-8"), (UDP_IP, UDP_PORT))
-
 
                     # log(f" Sent logout event: {msg}")
 
             # Update login state
-            # LOGIN_STATE = current_users
-            LOGIN_STATE = {}
-            for u, (st, rip, term) in current_users.items():
-                cur_ip = recent_remote_ips.get(u, rip or "Unknown")
-                LOGIN_STATE[(u, term or "", cur_ip or "")] = st
+            LOGIN_STATE = current_users
             time.sleep(SCAN_INTERVAL)
 
         except KeyboardInterrupt:
@@ -401,88 +414,46 @@ def main():
 
 
 
-def send_test_events():
-    # === same UDP setup as main producer ===
-    CONFIG_PATH = "/home/config.json"
-    with open(CONFIG_PATH, "r") as f:
-        config = json.load(f)
+# def send_test_events():
+#     # Test case 1: Only triggers raw_analysis_log (risk score 3)
+#     msg_raw_only = {
+#         "event_type": "login",
+#         "username": "testuser2",
+#         "login_time": "2024-06-27 14:00:00",        # 2pm, outside 8–13
+#         "logout_time": "2024-06-27 17:00:00",
+#         "session_duration_seconds": 10800,          # 3 hours (normal)
+#         "timestamp": "2024-06-27 14:00:00",
+#         "remote_ip": "192.168.1.25",                # Normal IP (allowed)
+#         "auth_type": "local",
+#         "mac_address": "00:11:22:33:44:55",
+#         "hostname": "test-host",
+#     }
+#     producer.send(KAFKA_TOPIC, value=msg_raw_only)
+#     # log(f"[TEST] Sent test event (raw only): {msg_raw_only}")
+#     time.sleep(1)
 
-    UDP_IP = config["udp"]["server_ip"]
-    UDP_PORT = config["udp"]["server_port"]
+#     # Test case 2: Triggers both raw_analysis_log and anomalies_log (risk score 8)
+#     msg_raw_and_anomaly = {
+#         "event_type": "login",
+#         "username": "testuser2",
+#         "login_time": "2024-06-27 14:00:00",        # 2pm, outside 8–13
+#         "logout_time": "2024-06-27 15:00:00",
+#         "session_duration_seconds": 3600,           # 1 hour (unusual)
+#         "timestamp": "2024-06-27 14:00:00",
+#         "remote_ip": "10.10.10.50",                 # Not in allowed range
+#         "auth_type": "local",
+#         "mac_address": "00:11:22:33:44:55",
+#         "hostname": "test-host",
+#     }
+#     producer.send(KAFKA_TOPIC, value=msg_raw_and_anomaly)
+#     # log(f"[TEST] Sent test event (raw + anomaly): {msg_raw_and_anomaly}")
+#     time.sleep(1)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    # Test case 1: Normal (should NOT raise anomaly)
-    msg_raw_only = {
-        "topic": "login-events",
-        "event_type": "login",
-        "username": "testuser2",
-        "login_time": "2024-06-27 14:00:00",   # 2 PM
-        "logout_time": "2024-06-27 17:00:00",
-        "session_duration_seconds": 10800,     # 3 hours
-        "timestamp": "2024-06-27 14:00:00",
-        "remote_ip": "192.168.1.25",           # Allowed IP
-        "auth_type": "local",
-        "mac_address": "00:11:22:33:44:55",
-        "hostname": "test-host",
-    }
-    sock.sendto(json.dumps(msg_raw_only).encode("utf-8"), (UDP_IP, UDP_PORT))
-    print(f"[TEST] Sent raw-only test event → {msg_raw_only}")
-    time.sleep(1)
-
-    # Test case 2: Anomaly (IP not allowed + short session)
-    msg_raw_and_anomaly = {
-        "topic": "login-events",
-        "event_type": "login",
-        "username": "testuser2",
-        "login_time": "2024-06-27 14:00:00",   # 2 PM
-        "logout_time": "2024-06-27 15:00:00",
-        "session_duration_seconds": 3600,      # 1 hour
-        "timestamp": "2024-06-27 14:00:00",
-        "remote_ip": "10.10.10.50",            # Not allowed
-        "auth_type": "local",
-        "mac_address": "00:11:22:33:44:55",
-        "hostname": "test-host",
-    }
-    sock.sendto(json.dumps(msg_raw_and_anomaly).encode("utf-8"), (UDP_IP, UDP_PORT))
-    print(f"[TEST] Sent anomaly test event → {msg_raw_and_anomaly}")
-    time.sleep(1)
-
-def send_pattern_events():
-    # === same UDP setup as main producer ===
-    CONFIG_PATH = "/home/config.json"
-    with open(CONFIG_PATH, "r") as f:
-        config = json.load(f)
-
-    UDP_IP = config["udp"]["server_ip"]
-    UDP_PORT = config["udp"]["server_port"]
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    # Send 5–10 normal events (inside baseline window, allowed IP, normal duration)
-    for i in range(10):
-        msg_normal = {
-            "topic": "login-events",
-            "event_type": "login",
-            "username": "testuser2",
-            "login_time": f"2024-06-27 10:00:00",   # 10 AM (inside baseline)
-            "logout_time": f"2024-06-27 18:00:00",  # 8 hrs session
-            "session_duration_seconds": 28800,      # 8 hours
-            "timestamp": f"2024-06-27 10:00:00",
-            "remote_ip": "192.168.1.25",            # Allowed IP
-            "auth_type": "local",
-            "mac_address": "00:11:22:33:44:55",
-            "hostname": "test-host",
-        }
-        sock.sendto(json.dumps(msg_normal).encode("utf-8"), (UDP_IP, UDP_PORT))
-        print(f"[TEST] Sent normal test event {i+1} → {msg_normal}")
-        time.sleep(1)
 
 
 
 if __name__ == "__main__":
-    # send_test_events()
-    # send_pattern_events ()
+    # send_test_events() 
     # threading.Thread(target=monitor_su_logins, daemon=True).start()
     # Register shutdown signal handlers
     signal.signal(signal.SIGTERM, handle_shutdown_signal)

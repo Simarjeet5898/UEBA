@@ -342,10 +342,105 @@ conn.commit()
 cur.close()
 conn.close()
 
+
+def get_command_baseline(user_id, min_samples=20):
+    """
+    Build a baseline profile of user command usage.
+    Falls back to SENSITIVE_COMMANDS if not enough history.
+    """
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT command
+            FROM executed_commands
+            WHERE user_id = %s
+            ORDER BY timestamp DESC
+            LIMIT 100;
+        """, (user_id,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if len(rows) < min_samples:
+            # Not enough history → fallback
+            return {"mode": "default", "sensitive": SENSITIVE_COMMANDS}
+
+        # Flatten and normalize commands
+        commands = [r[0].split()[0] for r in rows if r and r[0]]
+        freq = {}
+        for c in commands:
+            freq[c] = freq.get(c, 0) + 1
+
+        top_common = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:20]
+
+        baseline = {
+            "mode": "learned",
+            "common_commands": {cmd: count for cmd, count in top_common},
+            "sensitive_seen": [c for c in commands if c in SENSITIVE_COMMANDS],
+            "total_count": len(commands)
+        }
+        return baseline
+
+    except Exception as e:
+        LOG.error(f"[Baseline] Failed for {user_id}: {e}")
+        return {"mode": "default", "sensitive": SENSITIVE_COMMANDS}
+
+
+def detect_command_deviation(user_id, command, baseline):
+    """
+    Decide if a command deviates from the baseline.
+    Returns anomaly dict if deviation detected, else None.
+    """
+    cmd_base = command.split()[0] if command else ""
+    now = datetime.utcnow().isoformat()
+
+    if baseline["mode"] == "default":
+        # Cold start fallback → only sensitive check
+        if cmd_base in baseline["sensitive"]:
+            return {
+                "event_type": "SYSTEM_EVENTS",
+                "event_name": "TERMINAL_COMMAND_EXECUTED",
+                "event_reason": f"Sensitive command '{cmd_base}' executed by {user_id} (default profile)",
+                "timestamp": now,
+                "severity": "ALERT",
+                "command_text": command
+            }
+        return None
+
+    # Learned baseline
+    common = baseline.get("common_commands", {})
+    total = baseline.get("total_count", 1)
+
+    if cmd_base not in common:
+        return {
+            "event_type": "SYSTEM_EVENTS",
+            "event_name": "TERMINAL_COMMAND_EXECUTED",
+            "event_reason": f"Unseen command '{cmd_base}' executed by {user_id}",
+            "timestamp": now,
+            "severity": "ALERT",
+            "command_text": command
+        }
+
+    # Optional: frequency deviation check
+    freq_ratio = common[cmd_base] / total
+    if freq_ratio < 0.05:  # less than 5% of history
+        return {
+            "event_type": "SYSTEM_EVENTS",
+            "event_name": "TERMINAL_COMMAND_EXECUTED",
+            "event_reason": f"Rare command '{cmd_base}' executed by {user_id} (<5% frequency)",
+            "timestamp": now,
+            "severity": "ALERT",
+            "command_text": command
+        }
+
+    return None
+
+
 def main(stop_event=None):
     print("\033[1;92m!!!!!!!!! SRU Consumer Running (UDP) !!!!!!\033[0m")
     LOG.info("!!!!!!!!! SRU Consumer Running (UDP) !!!!!!")
-
 
     while not (stop_event and stop_event.is_set()):
         data, addr = sock.recvfrom(65535)
@@ -361,58 +456,114 @@ def main(stop_event=None):
 
         print(f"Received {len(command_executions)} command executions.")
         LOG.info("[SRU batch] cmds=%s host=%s mac=%s",
-         len(command_executions),
-         metrics.get("hostname"),
-         metrics.get("mac_address"))
+                 len(command_executions),
+                 metrics.get("hostname"),
+                 metrics.get("mac_address"))
 
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         # ========== COMMAND EXECUTIONS ==========
+        # for cmd in command_executions:
+        #     full_cmd = cmd.get("command", "")
+        #     tokens = full_cmd.split()
+        #     cmd_base = tokens[0] if tokens else ""
+
+        #     print(f"User: {cmd['user_id']}, Time: {cmd['timestamp']}, Command: {full_cmd}")
+        #     LOG.info("[CMD] user=%s base=%s", cmd.get("user_id"), cmd_base)
+
+        #     # 1. Always save command into executed_commands
+        #     cur.execute(
+        #         "INSERT INTO executed_commands (timestamp, user_id, source, command) VALUES (%s, %s, %s, %s)",
+        #         (
+        #             cmd.get("timestamp"),
+        #             cmd.get("user_id"),
+        #             cmd.get("source"),
+        #             full_cmd
+        #         )
+        #     )
+
+        #     # 2a. Sensitive Command Execution
+        #     if cmd_base in SENSITIVE_COMMANDS or any(tok in SENSITIVE_COMMANDS for tok in tokens):
+        #         LOG.warning("[Sensitive CMD] user=%s cmd=%s", cmd.get("user_id"), full_cmd)
+        #         anomaly = {
+        #             "user_id": cmd.get("user_id"),
+        #             "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
+        #             "event_type": "SYSTEM_EVENTS",
+        #             "event_name": "TERMINAL_COMMAND_EXECUTED",
+        #             "event_reason": f"Sensitive command '{full_cmd}' executed by {cmd.get('user_id')}",
+        #             "timestamp": cmd.get("timestamp"),
+        #             "log_text": json.dumps(cmd),
+        #             "severity": "ALERT",
+        #             "command_text": full_cmd,
+        #             "command_exe_duration": float(cmd.get("duration", 0.0)),
+        #             "command_repetition": "NO"
+        #         }
+
+        #         store_anomaly_to_database_and_siem(anomaly)
+        #         siem_packet = build_command_exe_moni_packet(anomaly)
+        #         store_siem_ready_packet(asdict(siem_packet))
+
+        #     # 2b. Repeated Command Execution (>=3 in last 1 minute)
+        #     cur.execute("""
+        #         SELECT COUNT(*) FROM executed_commands
+        #         WHERE command = %s AND timestamp > NOW() - INTERVAL '1 minutes'
+        #     """, (full_cmd,))
+        #     repetition_count = cur.fetchone()[0]
+
+        #     if repetition_count >= 3:
+        #         LOG.warning("[Repetition] user=%s count=%s cmd=%s",
+        #                     cmd.get("user_id"), repetition_count, full_cmd)
+        #         anomaly = {
+        #             "user_id": cmd.get("user_id"),
+        #             "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
+        #             "event_type": "SYSTEM_EVENTS",
+        #             "event_name": "TERMINAL_COMMAND_EXECUTED",
+        #             "event_reason": f"Command '{full_cmd}' used {repetition_count} times in last 1 minute by {cmd.get('user_id')}",
+        #             "timestamp": cmd.get("timestamp"),
+        #             "log_text": json.dumps(cmd),
+        #             "severity": "ALERT",
+        #             "command_text": full_cmd,
+        #             "command_exe_duration": float(cmd.get("duration", 0.0)),
+        #             "command_repetition": "YES"
+        #         }
+
+        #         store_anomaly_to_database_and_siem(anomaly)
+        #         siem_packet = build_command_exe_moni_packet(anomaly)
+        #         store_siem_ready_packet(asdict(siem_packet))
         for cmd in command_executions:
-            print(f"User: {cmd['user_id']}, Time: {cmd['timestamp']}, Command: {cmd['command']}")
-            LOG.info("[CMD] user=%s base=%s",
-            cmd.get("user_id"),
-            (os.path.basename(cmd.get("command","").split()[0]) if cmd.get("command") else ""))
+            full_cmd = cmd.get("command", "")
+            tokens = full_cmd.split()
+            cmd_base = tokens[0] if tokens else ""
 
+            print(f"User: {cmd['user_id']}, Time: {cmd['timestamp']}, Command: {full_cmd}")
+            LOG.info("[CMD] user=%s base=%s", cmd.get("user_id"), cmd_base)
 
-            # 1. Save command into executed_commands
+            # 1. Always save command into executed_commands
             cur.execute(
                 "INSERT INTO executed_commands (timestamp, user_id, source, command) VALUES (%s, %s, %s, %s)",
                 (
                     cmd.get("timestamp"),
                     cmd.get("user_id"),
                     cmd.get("source"),
-                    cmd.get("command")
+                    full_cmd
                 )
             )
 
-            full_cmd = cmd.get("command", "")
-            cmd_base = os.path.basename(full_cmd.split()[0]) if full_cmd else ""
+            # 2. Fetch baseline for this user
+            baseline = get_command_baseline(cmd.get("user_id"))
 
-            # 2a. Sensitive Command Execution
-            if cmd_base in SENSITIVE_COMMANDS:
-                LOG.warning("[Sensitive CMD] user=%s cmd=%s", cmd.get("user_id"), cmd_base)
-                anomaly = {
-                    "user_id": cmd.get("user_id"),
-                    "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
-                    "event_type": "SYSTEM_EVENTS",
-                    "event_name": "TERMINAL_COMMAND_EXECUTED",
-                    "event_reason": f"Sensitive command '{cmd_base}' executed by {cmd.get('user_id')}",
-                    "timestamp": cmd.get("timestamp"),
-                    "log_text": json.dumps(cmd),
-                    "severity": "ALERT",
-
-                    "command_text": full_cmd,
-                    "command_exe_duration": float(cmd.get("duration", 0.0)),
-                    "command_repetition": "NO"
-                }
-
+            # 3. Detect deviation or sensitive command
+            anomaly = detect_command_deviation(cmd.get("user_id"), full_cmd, baseline)
+            if anomaly:
+                # force event_name for consistency
+                anomaly["event_name"] = "TERMINAL_COMMAND_EXECUTED"
+                anomaly["msg_id"] = "UEBA_SIEM_CMD_EXE_MONI_MSG"
                 store_anomaly_to_database_and_siem(anomaly)
                 siem_packet = build_command_exe_moni_packet(anomaly)
                 store_siem_ready_packet(asdict(siem_packet))
 
-            # 2b. Repeated Command Execution (>=3 in last 1 minute)
+            # 4. Repeated Command Execution (>=3 in last 1 minute)
             cur.execute("""
                 SELECT COUNT(*) FROM executed_commands
                 WHERE command = %s AND timestamp > NOW() - INTERVAL '1 minutes'
@@ -421,7 +572,7 @@ def main(stop_event=None):
 
             if repetition_count >= 3:
                 LOG.warning("[Repetition] user=%s count=%s cmd=%s",
-                    cmd.get("user_id"), repetition_count, full_cmd)
+                            cmd.get("user_id"), repetition_count, full_cmd)
                 anomaly = {
                     "user_id": cmd.get("user_id"),
                     "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
@@ -431,7 +582,6 @@ def main(stop_event=None):
                     "timestamp": cmd.get("timestamp"),
                     "log_text": json.dumps(cmd),
                     "severity": "ALERT",
-
                     "command_text": full_cmd,
                     "command_exe_duration": float(cmd.get("duration", 0.0)),
                     "command_repetition": "YES"
@@ -441,12 +591,13 @@ def main(stop_event=None):
                 siem_packet = build_command_exe_moni_packet(anomaly)
                 store_siem_ready_packet(asdict(siem_packet))
 
+
         # ========== RESOURCE ANOMALIES (EWMA) ==========
         anomalies = detect_anomalies(metrics)
         if anomalies:
             print(f"[INFO] Detected {len(anomalies)} resource anomalies")
             LOG.info("[Resource anomalies] count=%s mac=%s",
-                len(anomalies), metrics.get("mac_address"))
+                     len(anomalies), metrics.get("mac_address"))
 
             # Extract top process info
             processes = metrics.get("per_process_memory") or []
@@ -499,8 +650,7 @@ def main(stop_event=None):
                 anomaly_msg = {
                     "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
                     "event_type": "SYSTEM_EVENTS",
-                    # "event_name": anomaly.get("Event Sub Type", "ANOMALOUS_CPU_CONSUMPTION"),
-                     "event_name": "DOS_ATTACK_DETECTED",
+                    "event_name": "DOS_ATTACK_DETECTED",
                     "event_reason": anomaly.get("Event Details"),
                     "timestamp": metrics.get("timestamp"),
                     "log_text": json.dumps(metrics),
@@ -511,10 +661,10 @@ def main(stop_event=None):
                 siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
                 store_siem_ready_packet(asdict(siem_packet))
 
-
         conn.commit()
         cur.close()
         conn.close()
+
 
 
 

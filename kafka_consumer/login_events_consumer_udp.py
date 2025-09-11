@@ -117,6 +117,37 @@ DEFAULT_BASELINE = {
     "holidays": sundays_2025
 }
 
+def get_login_logout_baseline():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT start_time, end_time
+            FROM abnormal_login_logout_config
+            ORDER BY updated_at DESC
+            LIMIT 1;
+        """)
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if row and row[0] and row[1]:
+            start_hour = row[0].hour
+            end_hour = row[1].hour
+            baseline = {
+                "login_window": (start_hour, end_hour),
+                "session_durations": DEFAULT_BASELINE["session_durations"],
+                "allowed_ips": DEFAULT_BASELINE["allowed_ips"],
+                "holidays": DEFAULT_BASELINE["holidays"],
+            }
+            print(f"[CONFIG] Using baseline window from DB: ({start_hour}, {end_hour})")
+            return baseline
+    except Exception as e:
+        LOG.error(f"Config fetch failed: {e}")
+
+    # add this line for default case
+    print(f"[CONFIG] Using default baseline window: {DEFAULT_BASELINE['login_window']}")
+    return DEFAULT_BASELINE
 
 def user_session_data(event):
     try:
@@ -340,11 +371,63 @@ def detect_brute_force(event):
         failed_logins[key] = []
 
 
+def get_statistical_baseline(username, min_samples=10):
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        # fetch last N login/logout times for this user
+        cur.execute("""
+            SELECT login_time, logout_time
+            FROM user_session_tracking
+            WHERE username = %s
+            AND login_time IS NOT NULL  
+            ORDER BY id DESC
+            LIMIT 50;
+        """, (username,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if len(rows) < min_samples:
+            print(f"[BASELINE] Not enough history for {username}, falling back to config/default.")
+            return get_login_logout_baseline()
+
+        # extract login/logout hours
+        login_hours = []
+        logout_hours = []
+        for login_str, logout_str in rows:
+            if login_str:
+                login_hours.append(datetime.fromisoformat(login_str).hour)
+            if logout_str:
+                logout_hours.append(datetime.fromisoformat(logout_str).hour)
+
+        if not login_hours or not logout_hours:
+            return get_login_logout_baseline()
+
+        # calculate average ±1h window
+        start_hour = max(0, int(sum(login_hours)/len(login_hours)) - 1)
+        end_hour   = min(23, int(sum(logout_hours)/len(logout_hours)) + 1)
+
+        baseline = {
+            "login_window": (start_hour, end_hour),
+            "session_durations": DEFAULT_BASELINE["session_durations"],
+            "allowed_ips": DEFAULT_BASELINE["allowed_ips"],
+            "holidays": DEFAULT_BASELINE["holidays"],
+        }
+        print(f"[BASELINE] Learned from history for {username}: {baseline['login_window']}")
+        return baseline
+
+    except Exception as e:
+        LOG.error(f"Baseline learning failed: {e}")
+        return get_login_logout_baseline()
+
+
 # def main():
 def main(stop_event=None):
     print("\033[1;32m  !!!!!!!!!!!Login Events consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
     LOG.info("!!!!!!!!!!! Login Events consumer started (UDP) !!!!!!!!!!!")
-
+    
     ensure_raw_analysis_log_exists()
     try:
         # while True:
@@ -366,7 +449,10 @@ def main(stop_event=None):
             print(f"\n[CONSUMED EVENT from {addr}]\n{json.dumps(event, indent=2)}")
 
             user_session_data(event)
-            detect_abnormal_login_logout(event, DEFAULT_BASELINE)
+            # user_baseline = get_login_logout_baseline()
+            user_baseline = get_statistical_baseline(event.get("username"))
+            detect_abnormal_login_logout(event, user_baseline)
+            # detect_abnormal_login_logout(event, DEFAULT_BASELINE)
             detect_dormant_account(event)
             detect_brute_force(event)
 
