@@ -15,6 +15,7 @@ a = Analysis(
         'kafka_producer.file_sys_monitoring_producer_udp',
         'kafka_producer.login_events_producer_udp',
         'kafka_producer.system_monitor_producer_udp'
+        
     ],
     hookspath=[],
     hooksconfig={},

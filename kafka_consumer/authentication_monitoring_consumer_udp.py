@@ -657,6 +657,57 @@ def main(stop_event=None):
                         analysis_reason="New user account created",
                         risk_score=0.4
                     )
+            
+            # ------- Successful login events (SSH/others) ---------
+            if metrics.get("successful_logins"):
+                for s in metrics["successful_logins"]:
+                    username = s.get("username", metrics.get("username", "Unknown"))
+                    method   = (s.get("method") or "UNKNOWN").upper()
+                    ts       = s.get("timestamp") or metrics.get("timestamp")
+
+                    auth_event = {
+                        "timestamp": ts,
+                        "event_type": "SUCCESSFUL_LOGIN",
+                        "username": username,
+                        "source_ip": s.get("source_ip", "Unknown"),
+                        "source_hostname": s.get("source_hostname") or metrics.get("hostname", "Unknown"),
+                        "method": method,
+                        "reason": f"Successful {method} authentication",
+                        "creator": metrics.get("creator", "System"),
+                        "extra_data": {}
+                    }
+                    insert_authentication_event(auth_event)
+
+            # ------- Failed login events ---------
+            failed_logins = metrics.get("failed_logins", 0)
+            if failed_logins > 0:
+                username = metrics.get("username", "Unknown")
+                ts       = metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
+
+                # Try to extract IP properly
+                source_ip = "Unknown"
+                if metrics.get("failed_logins_by_ip"):
+                    source_ip = list(metrics["failed_logins_by_ip"].keys())[0]
+
+                hostname = metrics.get("hostname") or "Unknown"
+
+                auth_event = {
+                    "timestamp": ts,
+                    "event_type": "FAILED_LOGIN",
+                    "username": username,
+                    "source_ip": source_ip,
+                    "source_hostname": hostname if isinstance(hostname, str) else "Unknown",
+                    "method": "SSH",
+                    "reason": f"{failed_logins} failed login attempt(s)",
+                    "creator": metrics.get("creator", "System"),
+                    "extra_data": {
+                        "failed_logins_by_user": metrics.get("failed_logins_by_user", {}),
+                        "failed_logins_by_ip": metrics.get("failed_logins_by_ip", {}),
+                        "failed_ssh_attempts": metrics.get("failed_ssh_attempts", [])
+                    }
+                }
+                insert_authentication_event(auth_event)
+
 
             # ------- Failed Password Change ---------
             failed_pw_changes = metrics.get("failed_password_changes", 0)
@@ -678,37 +729,52 @@ def main(stop_event=None):
                     )
                     insert_authentication_event(auth_event)
 
-                    store_raw_analysis(
-                        {
-                            "timestamp": metrics.get("timestamp"),
-                            "username": username,
-                            "event_type": "PASSWORD_CHANGE_FAILURE",
-                            "event_subtype": None
-                        },
-                        analysis_reason="User failed password change attempt",
-                        risk_score=0.5
-                    )
-
             # ------- Anomaly Detection ---------
+            # anomalies = detect_login_anomalies(metrics)
+
+            # if anomalies:
+            #     alert_data = {
+            #         "timestamp": metrics.get("timestamp", "N/A"),
+            #         "username": metrics.get("username", "Unknown"),
+            #         "mac_address": metrics.get("mac_address", "Unknown"),
+            #         "ip_addresses": metrics.get("ip_addresses", "Unknown"),
+            #         "anomalies": anomalies,
+            #         "metrics": metrics
+            #     }
+            #     alert_json = json.dumps(alert_data)
+
+            #     if isinstance(alert_data.get("logText"), dict):
+            #         alert_data["logText"] = json.dumps(alert_data["logText"])
+
+            #     feature_vectors = create_packet(alert_json)
+
+            #     print("Attempting to store in POSTGRES...")
+            #     LOG.info("Anomalies detected: %s", [a.get("Event Sub Type") for a in anomalies])
+            #     LOG.debug("Anomalies detail: %s", anomalies)
+            #     store_anomaly_to_database_and_siem(alert_json)
             anomalies = detect_login_anomalies(metrics)
 
             if anomalies:
-                alert_data = {
-                    "timestamp": metrics.get("timestamp", "N/A"),
+                anomaly = {
+                    # "eventId": str(uuid.uuid4()),  # unique ID
                     "username": metrics.get("username", "Unknown"),
-                    "mac_address": metrics.get("mac_address", "Unknown"),
-                    "ip_addresses": metrics.get("ip_addresses", "Unknown"),
-                    "anomalies": anomalies,
-                    "metrics": metrics
+                    "timestamp": metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
+                    "event_type": "AUTHENTICATION_EVENTS",
+                    "event_name": "ANOMALY_DETECTED",
+                    "severity": "ALERT",
+                    "eventReason": f"Detected anomalies: {[a.get('Event Sub Type') for a in anomalies]}",
+                    "deviceIp": (metrics.get("ip_addresses") or ["Unknown"])[0],
+                    "deviceMacId": metrics.get("mac_address", "Unknown"),
+                    "logText": json.dumps(metrics),  # stringified metrics (safe for DB/SIEM)
+                    "riskScore": 10.0                # or your calculate_risk(anomalies)
                 }
-                alert_json = json.dumps(alert_data)
-
-                feature_vectors = create_packet(alert_json)
 
                 print("Attempting to store in POSTGRES...")
                 LOG.info("Anomalies detected: %s", [a.get("Event Sub Type") for a in anomalies])
                 LOG.debug("Anomalies detail: %s", anomalies)
-                store_anomaly_to_database_and_siem(alert_json)
+
+                store_anomaly_to_database_and_siem(anomaly)
+
 
         except Exception as e:
             LOG.error(f"[SAC Consumer Error] {e}")

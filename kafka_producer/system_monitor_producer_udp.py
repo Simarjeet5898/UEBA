@@ -325,7 +325,7 @@ def collect_metrics():
 #                 # "mac_address": data.get("mac_address"),
 #                 # "ip_addresses": data.get("ip_addresses"),
 #                 #   "successful_logins": data.get("successful_logins"),
-# 		        # "sudo_failures":         data.get("sudo_failures"), 
+# 		          # "sudo_failures":         data.get("sudo_failures"), 
 #                 # "privilege_escalation_attempts": data.get("privilege_escalation_attempts"),
 #                 # "reverse_shell_events": data.get("reverse_shell_events"),
 #                 # "application_usage": data.get("application_usage"),
@@ -362,21 +362,32 @@ def main():
 
                 
                 important_metrics = {
-                    "timestamp": data.get("timestamp"),
-                    "cpu_usage": data.get("cpu_usage"),
-                    "memory_usage": data.get("memory_usage"),
-                    "startup_latency": data.get("startup_latency"),
-                    "disk_read_rate": data.get("disk_read_rate"),
-                    "disk_write_rate": data.get("disk_write_rate"),
-                    "network_bytes_sent": data.get("network_bytes_sent"),
-                    "network_bytes_recv": data.get("network_bytes_recv"),
-                    "username": data.get("username"),
-                    "system_temperature": data.get("system_temperature"),
-                    "avg_load": data.get("avg_load"),
-                    "response_time": data.get("response_time"),
-                    "io_wait_time": data.get("io_wait_time"),
-                    "context_switches": data.get("context_switches"),
-                    "command_executions": data.get("command_executions")
+                    # "timestamp": data.get("timestamp"),
+                    # "cpu_usage": data.get("cpu_usage"),
+                    # "memory_usage": data.get("memory_usage"),
+                    # "startup_latency": data.get("startup_latency"),
+                    # "disk_read_rate": data.get("disk_read_rate"),
+                    # "disk_write_rate": data.get("disk_write_rate"),
+                    # "network_bytes_sent": data.get("network_bytes_sent"),
+                    # "network_bytes_recv": data.get("network_bytes_recv"),
+                    # "username": data.get("username"),
+                    # "system_temperature": data.get("system_temperature"),
+                    # "avg_load": data.get("avg_load"),
+                    # "response_time": data.get("response_time"),
+                    # "io_wait_time": data.get("io_wait_time"),
+                    # "context_switches": data.get("context_switches"),
+                    # "command_executions": data.get("command_executions")
+                    
+                    "new_users": data.get("new_users"),
+                    "successful_logins": data.get("successful_logins"),
+                    "failed_logins": data.get("failed_logins"),
+                    "failed_logins_by_user": data.get("failed_logins_by_user"),
+                    "failed_logins_by_ip": data.get("failed_logins_by_ip"),
+                    "failed_ssh_attempts": data.get("failed_ssh_attempts"),
+                    "failed_password_changes": data.get("failed_password_changes"),
+                    "account_lockouts": data.get("account_lockouts"),
+                    "locked_users": data.get("locked_users"),
+                
                 }
                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")
    

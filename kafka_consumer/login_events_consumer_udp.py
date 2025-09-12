@@ -454,7 +454,7 @@ def main(stop_event=None):
             detect_abnormal_login_logout(event, user_baseline)
             # detect_abnormal_login_logout(event, DEFAULT_BASELINE)
             detect_dormant_account(event)
-            detect_brute_force(event)
+            # detect_brute_force(event)
 
     except KeyboardInterrupt:
         LOG.info("UDP consumer stopped by user.")

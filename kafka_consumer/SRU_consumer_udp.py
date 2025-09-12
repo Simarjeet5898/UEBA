@@ -6,7 +6,8 @@ import socket
 # from store_anomaly import store_anomaly
 import os 
 # import sys
-from datetime import datetime,timedelta
+# from datetime import datetime,timedelta
+from datetime import datetime, timedelta, timezone
 # import mysql.connector
 import psycopg2
 # from db_send import store_anomaly_to_postgres
@@ -387,14 +388,13 @@ def get_command_baseline(user_id, min_samples=20):
         LOG.error(f"[Baseline] Failed for {user_id}: {e}")
         return {"mode": "default", "sensitive": SENSITIVE_COMMANDS}
 
-
 def detect_command_deviation(user_id, command, baseline):
     """
     Decide if a command deviates from the baseline.
     Returns anomaly dict if deviation detected, else None.
     """
     cmd_base = command.split()[0] if command else ""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     if baseline["mode"] == "default":
         # Cold start fallback → only sensitive check
@@ -413,6 +413,7 @@ def detect_command_deviation(user_id, command, baseline):
     common = baseline.get("common_commands", {})
     total = baseline.get("total_count", 1)
 
+    # --- 1. Unseen command ---
     if cmd_base not in common:
         return {
             "event_type": "SYSTEM_EVENTS",
@@ -423,9 +424,26 @@ def detect_command_deviation(user_id, command, baseline):
             "command_text": command
         }
 
-    # Optional: frequency deviation check
+    # --- 2. Frequency ratio ---
     freq_ratio = common[cmd_base] / total
-    if freq_ratio < 0.05:  # less than 5% of history
+
+    # (a) Sensitive command handling
+    if cmd_base in SENSITIVE_COMMANDS:
+        if freq_ratio < 0.05:  # Rare sensitive usage
+            return {
+                "event_type": "SYSTEM_EVENTS",
+                "event_name": "TERMINAL_COMMAND_EXECUTED",
+                "event_reason": f"Rare sensitive command '{cmd_base}' executed by {user_id} (<5% frequency)",
+                "timestamp": now,
+                "severity": "ALERT",
+                "command_text": command
+            }
+        else:
+            # Frequent sensitive → treat as normal for this user
+            return None
+
+    # (b) Normal command handling
+    if freq_ratio < 0.05:  # Rare normal usage
         return {
             "event_type": "SYSTEM_EVENTS",
             "event_name": "TERMINAL_COMMAND_EXECUTED",
@@ -436,6 +454,7 @@ def detect_command_deviation(user_id, command, baseline):
         }
 
     return None
+
 
 
 def main(stop_event=None):
@@ -553,12 +572,21 @@ def main(stop_event=None):
             # 2. Fetch baseline for this user
             baseline = get_command_baseline(cmd.get("user_id"))
 
-            # 3. Detect deviation or sensitive command
+            # 3. Detect deviation or suspicious command
             anomaly = detect_command_deviation(cmd.get("user_id"), full_cmd, baseline)
             if anomaly:
-                # force event_name for consistency
-                anomaly["event_name"] = "TERMINAL_COMMAND_EXECUTED"
-                anomaly["msg_id"] = "UEBA_SIEM_CMD_EXE_MONI_MSG"
+                anomaly.update({
+                    "user_id": cmd.get("user_id"),
+                    "timestamp": cmd.get("timestamp"),
+                    "log_text": json.dumps(cmd),
+                    "command_text": full_cmd,
+                    "command_exe_duration": float(cmd.get("duration", 0.0)),
+                    "command_repetition": "NO",
+                    "event_type": "SYSTEM_EVENTS",
+                    "event_name": "TERMINAL_COMMAND_EXECUTED",
+                    "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
+                    "severity": "ALERT"
+                })
                 store_anomaly_to_database_and_siem(anomaly)
                 siem_packet = build_command_exe_moni_packet(anomaly)
                 store_siem_ready_packet(asdict(siem_packet))
@@ -586,7 +614,6 @@ def main(stop_event=None):
                     "command_exe_duration": float(cmd.get("duration", 0.0)),
                     "command_repetition": "YES"
                 }
-
                 store_anomaly_to_database_and_siem(anomaly)
                 siem_packet = build_command_exe_moni_packet(anomaly)
                 store_siem_ready_packet(asdict(siem_packet))
@@ -650,7 +677,8 @@ def main(stop_event=None):
                 anomaly_msg = {
                     "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
                     "event_type": "SYSTEM_EVENTS",
-                    "event_name": "DOS_ATTACK_DETECTED",
+                    # "event_name": "DOS_ATTACK_DETECTED",
+                    "event_name": "DDOS_ATTACK_DETECTED",
                     "event_reason": anomaly.get("Event Details"),
                     "timestamp": metrics.get("timestamp"),
                     "log_text": json.dumps(metrics),

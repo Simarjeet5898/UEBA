@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 # Hardcoded SIEM URL
-SIEM_URL = "http://10.229.40.67:5000/api/soc/v0_90/siem/addProcessedLog"
+SIEM_URL = "http://10.229.40.94:5000/api/soc/v0_90/siem/addProcessedLog"
 
 # Fixed values
 EVENT_TYPE = 6        # SECURITY_EVENTS

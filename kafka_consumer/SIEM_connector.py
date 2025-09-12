@@ -23,8 +23,8 @@ if not config:
 
 
 # Extract configurations
-# siem_api_url = config.get("siem_api_url")
-siem_api_url = "https://httpbin.org/post"
+siem_api_url = config.get("siem_api_url")
+# siem_api_url = "https://httpbin.org/post"
 destinations = config["destinations"]
 device_type = config["device_type"]
 source_id = config["source_id"]

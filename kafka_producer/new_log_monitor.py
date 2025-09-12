@@ -16,7 +16,7 @@ import platform
 import shutil
 import pwd
 import signal
-
+import json
 from datetime import datetime, timezone, timedelta
 
 
@@ -318,13 +318,12 @@ else:
         r"([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2}).*gdm-password\]: gkr-pam: unlocked login keyring"
     )
 
-import subprocess
-import re
-from datetime import datetime, timezone
+
+from datetime import datetime
+import tzlocal  # pip install tzlocal
 
 _seen_logins = set()
 _initialized = False
-
 
 def get_successful_logins():
     global _seen_logins, _initialized
@@ -332,41 +331,35 @@ def get_successful_logins():
 
     try:
         output = subprocess.check_output(['who'], text=True)
-        # print("==== Raw 'who' output ====")
-        # print(output)
-        # print("================================")
 
         for line in output.strip().split('\n'):
-            # print(f"Processing line: {line}")
+            if not line.strip():
+                continue
 
-            # Expected who format: username terminal date time (ip)
             parts = line.split()
             if len(parts) >= 5 and parts[-1].startswith("(") and parts[-1].endswith(")"):
                 user = parts[0]
                 terminal = parts[1]
-                login_time = ' '.join(parts[2:4])
-                source_ip = parts[4][1:-1]  # strip parentheses
+                login_time = ' '.join(parts[2:4])   # e.g. "Sep 12 13:20"
+                source_ip = parts[4][1:-1]
 
                 login_key = f"{user}|{terminal}|{source_ip}|{login_time}"
-                # print(f"-> Parsed: user={user}, terminal={terminal}, ip={source_ip}, time={login_time}")
-
                 if login_key in _seen_logins:
-                    # print(f"-> Already seen login_key: {login_key}")
                     continue
-
                 _seen_logins.add(login_key)
-                # print(f"-> Added to seen logins: {login_key}")
 
                 if not _initialized:
-                    # print("-> Skipping event (not initialized)")
                     continue
 
+                local_tz = tzlocal.get_localzone()
                 try:
-                    # Add year manually if needed
                     full_time_str = f"{login_time} {datetime.now().year}"
-                    log_dt = datetime.strptime(full_time_str, "%Y-%m-%d %H:%M:%S %Y").astimezone(timezone.utc)
+                    # who prints: "Sep 12 13:20"
+                    log_dt = datetime.strptime(full_time_str, "%b %d %H:%M %Y")
+                    log_dt = log_dt.replace(tzinfo=local_tz)
                 except Exception:
-                    log_dt = datetime.now(timezone.utc)  # fallback
+                    # fallback: use *now* in local time
+                    log_dt = datetime.now(local_tz)
 
                 event = {
                     "timestamp": log_dt.strftime("%Y-%m-%d %H:%M:%S"),
@@ -375,20 +368,126 @@ def get_successful_logins():
                     "source_hostname": None,
                     "method": "SSH"
                 }
-
-                # print(f"-> Appended new event: {event}")
                 new_events.append(event)
-            # else:
-                # print("-> Line doesn't match expected format")
 
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] subprocess failed: {e}")
 
     if not _initialized:
-        # print("-> Initialization complete")
         _initialized = True
 
     return new_events
+
+
+# import subprocess
+# from datetime import datetime, timezone
+
+# _seen_logins = set()
+# _initialized = False
+
+# def get_successful_logins():
+#     global _seen_logins, _initialized
+#     new_events = []
+
+#     # ---------- SSH / Local via "who" ----------
+#     try:
+#         output = subprocess.check_output(['who'], text=True)
+
+#         for line in output.strip().split('\n'):
+#             if not line.strip():
+#                 continue
+
+#             parts = line.split()
+#             if len(parts) >= 5 and parts[-1].startswith("(") and parts[-1].endswith(")"):
+#                 user = parts[0]
+#                 terminal = parts[1]
+#                 login_time = ' '.join(parts[2:4])
+#                 source_ip = parts[4][1:-1]  # strip parentheses
+
+#                 login_key = f"ssh|{user}|{terminal}|{source_ip}|{login_time}"
+#                 if login_key in _seen_logins:
+#                     continue
+#                 _seen_logins.add(login_key)
+
+#                 if not _initialized:
+#                     continue
+
+#                 try:
+#                     full_time_str = f"{login_time} {datetime.now().year}"
+#                     log_dt = datetime.strptime(full_time_str, "%Y-%m-%d %H:%M:%S %Y").astimezone(timezone.utc)
+#                 except Exception:
+#                     log_dt = datetime.now(timezone.utc)
+
+#                 event = {
+#                     "timestamp": log_dt.strftime("%Y-%m-%d %H:%M:%S"),
+#                     "username": user,
+#                     "source_ip": source_ip,
+#                     "source_hostname": None,
+#                     "method": "SSH"
+#                 }
+#                 new_events.append(event)
+
+#     except subprocess.CalledProcessError as e:
+#         print(f"[ERROR] subprocess failed: {e}")
+
+#     # ---------- su / sudo via auth.log ----------
+#     try:
+#         with open("/var/log/auth.log", "r") as f:
+#             lines = f.readlines()[-200:]  # check only recent lines
+
+#         for line in lines:
+#             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+#             if "session opened for user" in line and "su:" in line:
+#                 # Example: pam_unix(su:session): session opened for user root by simar(uid=1000)
+#                 parts = line.split()
+#                 target_user = parts[parts.index("user") + 1] if "user" in parts else "unknown"
+#                 actor = parts[parts.index("by") + 1] if "by" in parts else "unknown"
+#                 login_key = f"su|{actor}|{target_user}"
+#                 if login_key in _seen_logins:
+#                     continue
+#                 _seen_logins.add(login_key)
+
+#                 event = {
+#                     "timestamp": ts,
+#                     "username": target_user,
+#                     "source_ip": "localhost",
+#                     "source_hostname": None,
+#                     "method": "SU",
+#                     "extra": {"actor": actor}
+#                 }
+#                 new_events.append(event)
+
+#             elif "COMMAND=" in line and "sudo:" in line and "TTY=" in line:
+#                 # Example: sudo: simar : TTY=pts/1 ; PWD=/home/simar ; USER=root ; COMMAND=/bin/bash
+#                 parts = line.split()
+#                 actor = parts[1] if len(parts) > 1 else "unknown"
+#                 target_user = "root"
+#                 login_key = f"sudo|{actor}|{target_user}|{line}"
+#                 if login_key in _seen_logins:
+#                     continue
+#                 _seen_logins.add(login_key)
+
+#                 event = {
+#                     "timestamp": ts,
+#                     "username": target_user,
+#                     "source_ip": "localhost",
+#                     "source_hostname": None,
+#                     "method": "SUDO",
+#                     "extra": {"actor": actor, "raw": line.strip()}
+#                 }
+#                 new_events.append(event)
+
+#     except FileNotFoundError:
+#         pass  # auth.log not available
+
+#     if not _initialized:
+#         _initialized = True
+
+#     return new_events
+
+
+
 
 
 
@@ -1314,10 +1413,7 @@ def get_disk_io_rate():
     return read_rate, write_rate
 
 
-import os
-import re
-import json
-from datetime import datetime, timezone
+
 from dateutil import parser as date_parser  # pip install python-dateutil
 
 _script_start_time = datetime.now(timezone.utc)
@@ -1579,6 +1675,9 @@ _PW_FAIL_PATTERNS = [
     re.compile(r"passwd\[\d+\]:\s+password.*unchanged", re.I),
     re.compile(r"passwd:.*Authentication token manipulation error", re.I),
     re.compile(r"passwd\[\d+\]:\s+User not known to PAM", re.I),
+    re.compile(r"BAD PASSWORD", re.I),
+    re.compile(r"passwd:.*exhausted maximum number of retries", re.I),
+
 ]
 
 # Pull a username if one is embedded in the log line
