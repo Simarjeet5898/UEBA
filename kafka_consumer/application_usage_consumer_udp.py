@@ -195,16 +195,20 @@ def detect_anomalous_application_usage(record, state_cache=None):
     anomalies = []
 
     # 1. Sensitive apps (security tools, hacking tools, etc.)
-    sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
+    # sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
+    sensitive_apps = {
+    "nmap", "hydra", "sqlmap", "john", "airmon-ng",
+    "gnome-terminal", "gnome-terminal.real" 
+    }
     if record.get("process_name", "").lower() in sensitive_apps:
         anomalies.append(f"Sensitive application detected: {record['process_name']}")
 
     # 2. High CPU or memory usage (above threshold)
     cpu = record.get("cpu_percent", 0)
     mem = record.get("memory_percent", 0)
-    if cpu > 40:
+    if cpu > 20:
         anomalies.append(f"High CPU usage detected ({cpu}%) by {record['process_name']}")
-    if mem > 40:
+    if mem > 20:
         anomalies.append(f"High memory usage detected ({mem}%) by {record['process_name']}")
 
     # 3. Suspicious paths (non-standard executable locations)
@@ -229,7 +233,7 @@ def detect_anomalous_application_usage(record, state_cache=None):
     history = state_cache.setdefault(proc, [])
     history.append(now)
     state_cache[proc] = [t for t in history if (now - t).seconds < 60]  # keep last 60s only
-    if len(state_cache[proc]) > 5:
+    if len(state_cache[proc]) > 3:
         anomalies.append(f"Frequent launches of {proc} detected ({len(state_cache[proc])}/min)")
 
     return anomalies if anomalies else None

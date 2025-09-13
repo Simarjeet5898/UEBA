@@ -760,7 +760,7 @@ def main(stop_event=None):
                     "username": metrics.get("username", "Unknown"),
                     "timestamp": metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
                     "event_type": "AUTHENTICATION_EVENTS",
-                    "event_name": "ANOMALY_DETECTED",
+                    "event_name": "FAILED_LOGIN",
                     "severity": "ALERT",
                     "eventReason": f"Detected anomalies: {[a.get('Event Sub Type') for a in anomalies]}",
                     "deviceIp": (metrics.get("ip_addresses") or ["Unknown"])[0],

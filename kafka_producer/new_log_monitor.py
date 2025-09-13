@@ -1665,19 +1665,35 @@ def get_per_process_memory_usage(top_n=5):
 AUTH_LOG = "/var/log/auth.log"          # adjust for RHEL → /var/log/secure
 _last_passwd_chk = datetime.now(timezone.utc)
 
+# sudo nano /etc/pam.d/common-password
+
+# just add log in front of this: password        requisite                       pam_pwquality.so retry=3 log
+#
+#sudo apt-get update
+# sudo apt-get install libpam-pwquality
+
 # Timestamp regexes (same style used elsewhere)
 _PW_ISO_RE    = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+\-]\d{2}:\d{2})")
 _PW_SYSLOG_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
 
 # Content patterns that indicate a **failed** password change
+# _PW_FAIL_PATTERNS = [
+#     re.compile(r"pam_unix\(passwd:chauthtok\):\s+authentication failure", re.I),
+#     re.compile(r"passwd\[\d+\]:\s+password.*unchanged", re.I),
+#     re.compile(r"passwd:.*Authentication token manipulation error", re.I),
+#     re.compile(r"passwd\[\d+\]:\s+User not known to PAM", re.I),
+#     re.compile(r"BAD PASSWORD", re.I),
+#     re.compile(r"passwd:.*exhausted maximum number of retries", re.I),
+#     re.compile(r"passwd:.*Have exhausted maximum number of retries", re.I),
+
+# ]
 _PW_FAIL_PATTERNS = [
     re.compile(r"pam_unix\(passwd:chauthtok\):\s+authentication failure", re.I),
-    re.compile(r"passwd\[\d+\]:\s+password.*unchanged", re.I),
+    re.compile(r"passwd.*password.*unchanged", re.I),
     re.compile(r"passwd:.*Authentication token manipulation error", re.I),
-    re.compile(r"passwd\[\d+\]:\s+User not known to PAM", re.I),
+    re.compile(r"passwd.*User not known to PAM", re.I),
     re.compile(r"BAD PASSWORD", re.I),
     re.compile(r"passwd:.*exhausted maximum number of retries", re.I),
-
 ]
 
 # Pull a username if one is embedded in the log line
@@ -1754,7 +1770,23 @@ def get_failed_password_changes(
                     pass
 
         # Skip if timestamp missing / outside window / already processed
-        if not ts or ts <= _last_passwd_chk or ts < cutoff_ts:
+        # if not ts or ts <= _last_passwd_chk or ts < cutoff_ts:
+        #     continue
+        # If no timestamp but it matches a fail pattern, use "now"
+        # if not ts and any(pat.search(line) for pat in _PW_FAIL_PATTERNS):
+        #     ts = now_utc
+
+        # # Skip if still no timestamp / outside window / already processed
+        # if not ts or ts <= _last_passwd_chk or ts < cutoff_ts:
+        #     continue
+        # If no timestamp but it matches a fail pattern, fake ts = now
+        if not ts and any(pat.search(line) for pat in _PW_FAIL_PATTERNS):
+            ts = now_utc
+
+        # Now skip only if still no timestamp OR outside window / already processed
+        if not ts:
+            continue
+        if ts <= _last_passwd_chk or ts < cutoff_ts:
             continue
 
         # ── failure-pattern match ──────────────────────────────────────────────
