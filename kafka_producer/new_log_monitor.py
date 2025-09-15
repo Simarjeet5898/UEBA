@@ -147,20 +147,108 @@ def get_num_open_windows():
 
 
 
-last_checked_time = datetime.now(timezone.utc)
 
+# # Start with an old time so only new failures are counted after first run
+# last_checked_time = datetime.now(timezone.utc)
 
-# Start with an old time so only new failures are counted after first run
-last_checked_time = datetime.now(timezone.utc)
+# def get_failed_logins(
+#     log_file: str = "/var/log/auth.log",
+#     tail_lines: int = 200
+# ) -> int:
+#     """
+#     Reads the auth.log to count failed login attempts since the last function call.
+#     Uses tail to efficiently read only the most recent lines.
+#     Returns: total number of failed login attempts
+#     """
+#     global last_checked_time
+
+#     now_utc = datetime.now(timezone.utc)
+#     local_tz = datetime.now().astimezone().tzinfo
+#     current_time = now_utc
+
+#     # Regex patterns for timestamps
+#     iso_re = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})")
+#     syslog_re = re.compile(r"(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
+
+#     # Patterns for authentication failures
+#     auth_failure_patterns = [
+#         re.compile(r"pam_unix\(.*:auth\):\s+authentication failure"),
+#         re.compile(r"sudo:.* authentication failure"),
+#         re.compile(r"sshd\[\d+\]: Failed password for"),
+#         re.compile(r"Failed password for .* from .* port \d+ ssh2"),
+#     ]
+
+#     try:
+#         out = subprocess.check_output(
+#             ["tail", "-n", str(tail_lines), log_file],
+#             text=True,
+#             stderr=subprocess.DEVNULL,
+#             timeout=1
+#         )
+#     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+#         print("Could not read log file")
+#         return 0
+
+#     failed_attempts = 0
+#     max_ts = last_checked_time
+
+#     for line in out.splitlines():
+#         ts = None
+
+#         # Try ISO timestamp first
+#         m1 = iso_re.search(line)
+#         if m1:
+#             try:
+#                 ts = datetime.fromisoformat(m1.group(1)).astimezone(timezone.utc)
+#             except ValueError:
+#                 print("Failed to parse ISO timestamp in line:", line)
+#                 continue
+#         # Fallback to syslog
+#         else:
+#             m2 = syslog_re.match(line)
+#             if m2:
+#                 mon, day, timestr = m2.groups()
+#                 year = now_utc.year
+#                 try:
+#                     dt_naive = datetime.strptime(
+#                         f"{year} {mon} {int(day):02d} {timestr}",
+#                         "%Y %b %d %H:%M:%S"
+#                     )
+#                     ts = dt_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
+#                 except ValueError:
+#                     # print("Failed to parse syslog timestamp in line:", line)
+#                     continue
+
+#         # print("Line TS:", ts, "| last_checked_time:", last_checked_time, "| current_time:", current_time)
+#         # if ts and last_checked_time < ts <= current_time: #Added on 15 sept by simar
+#         if ts and ts > last_checked_time and ts <= current_time:
+#             for pattern in auth_failure_patterns:
+#                 if pattern.search(line):
+#                     # print("[MATCH]", pattern.pattern, "=>", line)
+#                     failed_attempts += 1
+#                     if ts > max_ts:
+#                         max_ts = ts
+#                     break  # Prevent double counting
+
+#     # Always update the last_checked_time to the latest we saw
+#     if max_ts > last_checked_time:
+#         last_checked_time = max_ts
+#     else:
+#         last_checked_time = current_time
+
+#     # print("Returning", failed_attempts, "failed login attempts")
+#     return failed_attempts
+
+# Start with None so we can cleanly baseline on first call
+last_checked_time = None
 
 def get_failed_logins(
     log_file: str = "/var/log/auth.log",
     tail_lines: int = 200
 ) -> int:
     """
-    Reads the auth.log to count failed login attempts since the last function call.
-    Uses tail to efficiently read only the most recent lines.
-    Returns: total number of failed login attempts
+    Count only *new* failed login attempts since last call.
+    Returns the number of new failures detected.
     """
     global last_checked_time
 
@@ -168,17 +256,19 @@ def get_failed_logins(
     local_tz = datetime.now().astimezone().tzinfo
     current_time = now_utc
 
-    # Regex patterns for timestamps
-    iso_re = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})")
+    # First ever call → just baseline, return 0 (no backcounting)
+    if last_checked_time is None:
+        last_checked_time = current_time
+        return 0
+
+    # Regex for syslog timestamps
+    iso_re    = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})")
     syslog_re = re.compile(r"(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
 
-    # Patterns for authentication failures
-    auth_failure_patterns = [
-        re.compile(r"pam_unix\(.*:auth\):\s+authentication failure"),
-        re.compile(r"sudo:.* authentication failure"),
-        re.compile(r"sshd\[\d+\]: Failed password for"),
-        re.compile(r"Failed password for .* from .* port \d+ ssh2"),
-    ]
+    # Canonical SSHD failed login line
+    ssh_fail_re = re.compile(
+        r"sshd\[\d+\]:\s*Failed password for (?:invalid user )?\S+ from [0-9A-Fa-f\.:]+"
+    )
 
     try:
         out = subprocess.check_output(
@@ -188,7 +278,6 @@ def get_failed_logins(
             timeout=1
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-        print("Could not read log file")
         return 0
 
     failed_attempts = 0
@@ -203,9 +292,7 @@ def get_failed_logins(
             try:
                 ts = datetime.fromisoformat(m1.group(1)).astimezone(timezone.utc)
             except ValueError:
-                print("Failed to parse ISO timestamp in line:", line)
                 continue
-        # Fallback to syslog
         else:
             m2 = syslog_re.match(line)
             if m2:
@@ -218,26 +305,17 @@ def get_failed_logins(
                     )
                     ts = dt_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
                 except ValueError:
-                    # print("Failed to parse syslog timestamp in line:", line)
                     continue
 
-        # print("Line TS:", ts, "| last_checked_time:", last_checked_time, "| current_time:", current_time)
+        # Count only new failures since last_checked_time
         if ts and last_checked_time < ts <= current_time:
-            for pattern in auth_failure_patterns:
-                if pattern.search(line):
-                    # print("[MATCH]", pattern.pattern, "=>", line)
-                    failed_attempts += 1
-                    if ts > max_ts:
-                        max_ts = ts
-                    break  # Prevent double counting
+            if ssh_fail_re.search(line):
+                failed_attempts += 1
+                if ts > max_ts:
+                    max_ts = ts
 
-    # Always update the last_checked_time to the latest we saw
-    if max_ts > last_checked_time:
-        last_checked_time = max_ts
-    else:
-        last_checked_time = current_time
-
-    # print("Returning", failed_attempts, "failed login attempts")
+    # Advance the watermark
+    last_checked_time = max_ts if max_ts > last_checked_time else current_time
     return failed_attempts
 
 

@@ -36,6 +36,57 @@ file_access_log = defaultdict(lambda: deque(maxlen=20))
 FREQ_THRESHOLD = 10
 FREQ_WINDOW = 60  # seconds
 
+import string
+
+# ---------------- Baseline Rules ----------------
+PROTECTED_DIRS = ["/etc", "/bin", "/usr"]
+
+def baseline_ok(evt):
+    """
+    Check whether the file operation satisfies baseline rules.
+    Returns (True, None) if safe/normal.
+    Returns (False, reason) if violation.
+    """
+    etype = evt["metrics"].get("event_type")
+    path  = evt["metrics"].get("directory", "")
+    fname = os.path.basename(path)
+
+    if not fname:
+        return False, "Empty filename"
+
+    first_char = fname[0]
+
+    # --- Creation rules ---
+    if etype == "created":
+        if first_char.isdigit():
+            return False, "Filename starts with a number"
+        if first_char in string.punctuation or first_char in ["_", ".", "-"]:
+            return False, f"Filename starts with special character: {first_char}"
+
+    # --- Modification rules ---
+    if etype == "modified":
+        # baseline: allow all modifications for now
+        pass
+
+    # --- Deletion rules ---
+    if etype == "deleted":
+        if any(path.startswith(d) for d in PROTECTED_DIRS):
+            return False, f"Deletion not allowed in {path}"
+
+    # --- Move rules ---
+    if etype == "moved":
+        dest = evt.get("event_info", {}).get("Value", {}).get("to", "")
+        if dest and not os.access(os.path.dirname(dest), os.W_OK):
+            return False, f"Move target not writable: {dest}"
+
+    return True, None
+
+def baseline_deviation(evt):
+    ok, reason = baseline_ok(evt)
+    return (not ok), reason
+# ------------------------------------------------
+
+
 def is_sensitive(path):
     return any(path.startswith(sd) for sd in sensitive_dirs)
 
@@ -45,6 +96,7 @@ def is_access_frequency_anomalous(path):
     access_times.append(now)
     recent = [t for t in access_times if now - t <= FREQ_WINDOW]
     return len(recent) > FREQ_THRESHOLD, len(recent)
+
 
 def store_file_event(evt):
     try:
@@ -110,7 +162,11 @@ def main(stop_event=None):
                 print(f"[CONSUMED EVENT from {addr}]\n{json.dumps(evt, indent=2)}")
 
                 path = evt["metrics"].get("directory", "")
+                # freq_anomaly, freq_count = is_access_frequency_anomalous(path)
                 freq_anomaly, freq_count = is_access_frequency_anomalous(path)
+                rule_violation, rule_reason = baseline_deviation(evt)
+                anomaly_flag = is_sensitive(path) or freq_anomaly or rule_violation
+
                 anomaly_flag = is_sensitive(path) or freq_anomaly
                 if anomaly_flag:
                     LOG.info(
@@ -133,7 +189,11 @@ def main(stop_event=None):
                         "event_type": "FILE_AND_OBJECT_ACCESS_EVENTS",
                         # anomalies_log.event_subtype will show FILE_WRITE / FILE_DELETE etc.
                         "event_name": mapped_event_name,
-                        "event_reason": f"{mapped_event_name} detected in sensitive directory",
+                        # "event_reason": f"{mapped_event_name} detected in sensitive directory",
+                        "event_reason": rule_reason or (
+                            f"{mapped_event_name} detected in sensitive directory" if is_sensitive(path)
+                            else f"Frequency anomaly: {freq_count} accesses in {FREQ_WINDOW}s"
+                        ),
                         "timestamp": evt.get("timestamp"),
                         "log_text": json.dumps(evt, default=str),
                         "severity": "ALERT",
@@ -143,7 +203,7 @@ def main(stop_event=None):
                         "file_name": evt["metrics"].get("file_name", "N/A"),
                         "file_path": path,
                         # keep raw value for reference
-                        "operation_type": raw_event_type,
+                        # "operation_type": raw_event_type,
                         "frequency_count": freq_count,
                     }
 

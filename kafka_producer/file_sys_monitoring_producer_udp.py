@@ -24,7 +24,7 @@ UDP_PORT = config["udp"]["server_port"]
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-IGNORE_PATTERNS = [".1", ".gz", ".old", ".bak", ".swp", ".tmp", ".swo", ".swx", ".log"]
+IGNORE_PATTERNS = [".1", ".gz", ".old", ".bak", ".swp", ".tmp", ".swo", ".swx", ".log",".bash_history"]
 IGNORE_DIRS = [
     "/proc", "/sys", "/dev",
     os.path.expanduser("~/.config"),
