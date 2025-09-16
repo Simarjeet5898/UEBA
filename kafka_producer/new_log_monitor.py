@@ -1892,13 +1892,6 @@ def get_failed_password_changes(
 
 
 ############### UEBA_10:: Command Execution Monitoring #################
-import os
-import pwd
-from datetime import datetime
-
-script_start_time = datetime.now()
-_last_seen_command_time = script_start_time  # global tracker
-
 
 import os
 import pwd
