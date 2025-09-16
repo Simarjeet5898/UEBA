@@ -16,8 +16,6 @@ from helper import store_anomaly_to_database_and_siem
 import socket
 from helper import build_command_exe_moni_packet, store_siem_ready_packet,build_anomalous_cpu_gpu_ram_consp_packet
 # from udp_dispatcher import queues
-import math
-from datetime import datetime
 import logging
 LOG = logging.getLogger("SRU Consumer")
 
@@ -303,87 +301,6 @@ def detect_anomalies(metrics):
 
     return anomalies
 
-def detect_anomalous_resource_usage(metrics):
-    """
-    Detect anomalies ONLY for CPU, Memory, and GPU.
-    No cooldown, no EWMA. Uses simple thresholds + persistence + recovery.
-    With debug prints for behavior tracing.
-    """
-
-    WATCHED = {
-        "cpu_usage":    {"min_abs": 75.0, "event_name": "Anomalous CPU Usage"},
-        "memory_usage": {"min_abs": 65.0, "event_name": "Anomalous Memory Usage"},
-        "gpu_usage":    {"min_abs": 15.0, "event_name": "Anomalous GPU Usage"},
-    }
-    PERSISTENCE_REQUIRED = 3   # consecutive abnormal samples to trigger
-    RECOVERY_REQUIRED    = 3   # consecutive normal samples to reset
-
-    # persistent state per device
-    ru_state = globals().setdefault("_RU_STATE_SIMPLE", {})
-
-    mac = metrics.get("mac_address", "Unknown-MAC")
-    host = metrics.get("hostname")
-    user = metrics.get("username")
-    ts   = metrics.get("timestamp")
-
-    mstate = ru_state.setdefault(mac, {
-        "strikes": {}, "recovery": {}, "active": {}
-    })
-
-    anomalies = []
-
-    for key, cfg in WATCHED.items():
-        v = metrics.get(key, None)
-        if not isinstance(v, (int, float)):
-            continue
-
-        if key not in mstate["strikes"]:
-            mstate["strikes"][key] = 0
-            mstate["recovery"][key] = 0
-            mstate["active"][key] = False
-
-        # abnormal condition
-        abnormal = v >= cfg["min_abs"]
-
-        # # 🔎 Debug print
-        # print(f"[DEBUG] {key}: value={v}, threshold={cfg['min_abs']}, "
-        #       f"abnormal={abnormal}, active={mstate['active'][key]}, "
-        #       f"strikes={mstate['strikes'][key]}, recovery={mstate['recovery'][key]}")
-
-        if abnormal:
-            mstate["strikes"][key] += 1
-            mstate["recovery"][key] = 0
-
-            if not mstate["active"][key] and mstate["strikes"][key] >= PERSISTENCE_REQUIRED:
-                # fire anomaly once at episode start
-                mstate["active"][key] = True
-                mstate["strikes"][key] = 0
-
-                print(f"[ALERT] {cfg['event_name']} fired for {mac} at {ts} (value={v:.2f})")
-
-                anomalies.append({
-                    "event_type": "SYSTEM_EVENTS",
-                    "event_name": cfg["event_name"],
-                    "event_reason": f"{cfg['event_name']} detected: value={v:.2f}%",
-                    "metric": key,
-                    "current_value": v,
-                    "mac_address": mac,
-                    "hostname": host,
-                    "username": user,
-                    "timestamp": ts,
-                    "severity": "ALERT",
-                })
-        else:
-            mstate["strikes"][key] = 0
-            if mstate["active"][key]:
-                mstate["recovery"][key] += 1
-                if mstate["recovery"][key] >= RECOVERY_REQUIRED:
-                    print(f"[INFO] {cfg['event_name']} recovered for {mac} at {ts}")
-                    mstate["active"][key] = False
-                    mstate["recovery"][key] = 0
-
-    return anomalies
-
 
 # One-time table creation & migration before the loop
 conn = psycopg2.connect(**DB_CONFIG)
@@ -582,7 +499,7 @@ def main(stop_event=None):
                         full_cmd
                     )
                 )
-                
+
                 # 2. Fetch baseline for this user
                 baseline = get_command_baseline(cmd.get("user_id"))
 
@@ -633,9 +550,7 @@ def main(stop_event=None):
                     store_siem_ready_packet(asdict(siem_packet))
 
         # ---------- RESOURCE USAGE (ALWAYS) ----------
-        # anomalies = detect_anomalies(metrics)
-        anomalies = detect_anomalous_resource_usage(metrics)
-
+        anomalies = detect_anomalies(metrics)
         if anomalies:
             print(f"[INFO] Detected {len(anomalies)} resource anomalies")
             LOG.info("[Resource anomalies] count=%s mac=%s",
@@ -693,8 +608,7 @@ def main(stop_event=None):
                 "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
                 "event_type": "SYSTEM_EVENTS",
                 "event_name": "DDOS_ATTACK_DETECTED",
-                # "event_reason": anomaly.get("Event Details"),
-                "event_reason": anomaly.get("event_reason"),
+                "event_reason": anomaly.get("Event Details"),
                 "timestamp": metrics.get("timestamp"),
                 "log_text": json.dumps(metrics),
                 "severity": "ALERT",

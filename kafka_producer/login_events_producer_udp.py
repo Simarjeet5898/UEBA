@@ -69,6 +69,25 @@ SCAN_INTERVAL = 5  # seconds
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
+def normalize_ip(ip):
+    if not ip or ip in ("Unknown", "localhost", "127.0.0.1", "127.0.1.1"):
+        return "127.0.0.1"
+    return ip.strip()
+
+def normalize_terminal(term):
+    if not term:
+        return ""
+    if term.startswith("pts/"):
+        return "pts"   # collapse pts/0, pts/1, etc.
+    return term.strip()
+
+def make_session_key(username, terminal, remote_ip):
+    return (
+        username,
+        normalize_terminal(terminal),
+        normalize_ip(remote_ip)
+    )
+
 
 def get_public_ip():
     try:
@@ -298,7 +317,9 @@ def main():
                     auth_type = "local"
 
                 # session identity (prevents collisions across tty/seat/ip)
-                session_key = (username, terminal, remote_ip or "")
+                # session_key = (username, terminal, remote_ip or "")
+                session_key = make_session_key(username, terminal, remote_ip)
+
 
                 # last_login_time logic stays as-is
                 if username == "testdormantuser":
@@ -339,7 +360,9 @@ def main():
             current_keys = set()
             for u, (st, rip, term) in current_users.items():
                 cur_ip = recent_remote_ips.get(u, rip or "Unknown")
-                current_keys.add((u, term or "", cur_ip or ""))
+                # current_keys.add((u, term or "", cur_ip or ""))
+                current_keys.add(make_session_key(u, term, cur_ip))
+
 
             # Detect logouts per session_key
             for (u, t, r), started_epoch in list(LOGIN_STATE.items()):
@@ -389,7 +412,9 @@ def main():
             LOGIN_STATE = {}
             for u, (st, rip, term) in current_users.items():
                 cur_ip = recent_remote_ips.get(u, rip or "Unknown")
-                LOGIN_STATE[(u, term or "", cur_ip or "")] = st
+                # LOGIN_STATE[(u, term or "", cur_ip or "")] = st
+                LOGIN_STATE[make_session_key(u, term, cur_ip)] = st
+
             time.sleep(SCAN_INTERVAL)
 
         except KeyboardInterrupt:

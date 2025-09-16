@@ -53,7 +53,7 @@ DB_CONFIG = {
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REGISTRY_FILE = os.path.join(HERE, 'client_registry.json')
+# REGISTRY_FILE = os.path.join(HERE, 'client_registry.json')
 
 def insert_authentication_event(event):
     try:
@@ -101,16 +101,16 @@ def insert_authentication_event(event):
         LOG.error("Authentication Table insert error: %s", e)
 
 
-def load_registry():
-    """Load the client registry from JSON file."""
-    try:
-        with open(REGISTRY_FILE, 'r') as f:
-            registry = json.load(f)
-        # print(f"Successfully loaded registry with {len(registry)} clients")
-        return registry
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Error loading registry: {e}")
-        return {}
+# def load_registry():
+#     """Load the client registry from JSON file."""
+#     try:
+#         with open(REGISTRY_FILE, 'r') as f:
+#             registry = json.load(f)
+#         # print(f"Successfully loaded registry with {len(registry)} clients")
+#         return registry
+#     except (FileNotFoundError, json.JSONDecodeError) as e:
+#         print(f"Error loading registry: {e}")
+#         return {}
 
 # project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # sys.path.append(project_root)
@@ -217,72 +217,72 @@ ANOMALY_CATEGORIES = {
 
 
 
-def detect_usb_anomalies(metrics):
-    """Detect USB device anomalies using the registry."""
-    anomalies = []
+# def detect_usb_anomalies(metrics):
+#     """Detect USB device anomalies using the registry."""
+#     anomalies = []
     
-    mac = metrics.get('mac_address')
-    if not mac:
-        print("No MAC address in metrics")
-        return anomalies
+#     mac = metrics.get('mac_address')
+#     if not mac:
+#         print("No MAC address in metrics")
+#         return anomalies
     
-    # Load client registry
-    registry = load_registry()
+#     # Load client registry
+#     registry = load_registry()
     
-    # Get client data for this MAC
-    client_data = registry.get(mac, {})
+#     # Get client data for this MAC
+#     client_data = registry.get(mac, {})
     
-    if not client_data:
-        # print(f"Warning: No registry entry found for MAC {mac}")
-        # print(f"Available MACs in registry: {list(registry.keys())}")
-        return anomalies
+#     if not client_data:
+#         # print(f"Warning: No registry entry found for MAC {mac}")
+#         # print(f"Available MACs in registry: {list(registry.keys())}")
+#         return anomalies
     
-    # Get registered USB devices for this MAC
-    registered_usb_devices = set()
-    usb_devices_list = client_data.get('usb_devices', [])
+#     # Get registered USB devices for this MAC
+#     registered_usb_devices = set()
+#     usb_devices_list = client_data.get('usb_devices', [])
     
-    for device in usb_devices_list:
-        if isinstance(device, dict) and 'device_id' in device:
-            registered_usb_devices.add(device['device_id'])
+#     for device in usb_devices_list:
+#         if isinstance(device, dict) and 'device_id' in device:
+#             registered_usb_devices.add(device['device_id'])
     
-    # Get current USB devices from metrics
-    current_devices = metrics.get('devices', [])
-    current_usb_devices = set()
+#     # Get current USB devices from metrics
+#     current_devices = metrics.get('devices', [])
+#     current_usb_devices = set()
     
-    for device in current_devices:
-        if isinstance(device, dict) and device.get('device_id'):
-            current_usb_devices.add(device['device_id'])
+#     for device in current_devices:
+#         if isinstance(device, dict) and device.get('device_id'):
+#             current_usb_devices.add(device['device_id'])
     
-    # Debug output
-    print(f"MAC: {mac}")
-    print(f"Registered USB devices: {registered_usb_devices}")
-    print(f"Current USB devices: {current_usb_devices}")
+#     # Debug output
+#     print(f"MAC: {mac}")
+#     print(f"Registered USB devices: {registered_usb_devices}")
+#     print(f"Current USB devices: {current_usb_devices}")
     
-    # Find new USB devices
-    new_usb_devices = current_usb_devices - registered_usb_devices
-    print(f"New USB devices detected: {new_usb_devices}")
+#     # Find new USB devices
+#     new_usb_devices = current_usb_devices - registered_usb_devices
+#     print(f"New USB devices detected: {new_usb_devices}")
     
-    if new_usb_devices:
-        # Get device details for the new devices
-        new_device_details = []
-        for device in current_devices:
-            if device.get('device_id') in new_usb_devices:
-                new_device_details.append(device)
+#     if new_usb_devices:
+#         # Get device details for the new devices
+#         new_device_details = []
+#         for device in current_devices:
+#             if device.get('device_id') in new_usb_devices:
+#                 new_device_details.append(device)
         
-        device_names = [d.get('name', d.get('device_id')) for d in new_device_details]
+#         device_names = [d.get('name', d.get('device_id')) for d in new_device_details]
         
-        event_info = ANOMALY_CATEGORIES["unauthorized_usb_device"]
-        anomalies.append({
-            "Event Type": event_info["Event Type"],
-            "Event Sub Type": event_info["Event Sub Type"],
-            "Event Details": f"{event_info['Event Details']}: {', '.join(device_names)}",
-            "Value": list(new_usb_devices)
-        })
-        print(f"USB ANOMALY DETECTED: {device_names}")
-    else:
-        print("No new USB devices detected")
+#         event_info = ANOMALY_CATEGORIES["unauthorized_usb_device"]
+#         anomalies.append({
+#             "Event Type": event_info["Event Type"],
+#             "Event Sub Type": event_info["Event Sub Type"],
+#             "Event Details": f"{event_info['Event Details']}: {', '.join(device_names)}",
+#             "Value": list(new_usb_devices)
+#         })
+#         print(f"USB ANOMALY DETECTED: {device_names}")
+#     else:
+#         print("No new USB devices detected")
     
-    return anomalies
+#     return anomalies
 
 #newly function added to remove duplicate reverse shell detection
 REVERSE_SHELL_CACHE: dict[tuple, float] = {}
@@ -609,7 +609,7 @@ def detect_login_anomalies(metrics):
             })
 
     # ── USB device anomalies ──────────────────────────────
-    anomalies.extend(detect_usb_anomalies(metrics))
+    # anomalies.extend(detect_usb_anomalies(metrics))
 
     # ── Excessive cron jobs ───────────────────────────────
     cron_count = metrics.get("num_cron_jobs")

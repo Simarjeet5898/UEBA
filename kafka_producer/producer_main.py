@@ -31,6 +31,9 @@ from kafka_producer.file_sys_monitoring_producer_udp import main as file_sys_mai
 from kafka_producer.login_events_producer_udp import main as login_events_main
 from kafka_producer.system_monitor_producer_udp import main as system_monitor_main
 
+## Added by simar
+from kafka_producer.login_events_producer_udp import handle_shutdown_signal 
+
 # === Thread Wrapper ===
 def run_producer(name, target):
     try:
@@ -42,10 +45,27 @@ def run_producer(name, target):
 # === Signal Handling ===
 stop_event = threading.Event()
 
+# def handle_exit(signum, frame):
+#     print("\n[UEBA Client] Shutting down all producers...")
+#     stop_event.set()
+#     sys.exit(0)
+
 def handle_exit(signum, frame):
     print("\n[UEBA Client] Shutting down all producers...")
-    stop_event.set()
-    sys.exit(0)
+
+    # ✅ Send logout events before exiting
+    try:
+        handle_shutdown_signal()
+    except Exception as e:
+        print(f"[UEBA Client] Failed to flush login_events logout: {e}")
+
+    # ✅ Hard exit so no producers keep running
+    os._exit(0)
+
+
+
+
+
 
 # Trap Ctrl+C and kill
 signal.signal(signal.SIGINT, handle_exit)   # Ctrl+C

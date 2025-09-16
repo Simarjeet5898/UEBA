@@ -1388,7 +1388,7 @@ def main(stop_event=None):
     from pathlib import Path
     from datetime import datetime
 
-    print("\033[1;32m  !!!!!UEBA DSHBOARD API SERVER (UDP) started!!!!!!\033[0m") 
+    print("\033[1;32m  !!!!!UEBA DASHBOARD API SERVER (UDP) started!!!!!!\033[0m") 
 
     # Prepare log folder inside ~/ueba_server_log
     USER_HOME = Path.home()

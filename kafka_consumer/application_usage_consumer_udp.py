@@ -198,7 +198,7 @@ def detect_anomalous_application_usage(record, state_cache=None):
     # sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
     sensitive_apps = {
     "nmap", "hydra", "sqlmap", "john", "airmon-ng",
-    "gnome-terminal", "gnome-terminal.real" 
+     
     }
     if record.get("process_name", "").lower() in sensitive_apps:
         anomalies.append(f"Sensitive application detected: {record['process_name']}")
