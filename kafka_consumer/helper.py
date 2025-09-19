@@ -5,7 +5,7 @@ import logging
 # from SIEM_connector import send_json_packet
 from SIEM_connector import create_packet,send_json_packet
 
-# from rabbit_mq.send import send_to_rabbitmq
+from rabbit_mq.send import send_to_rabbitmq
 import json
 import os
 import sys
@@ -1060,8 +1060,8 @@ def store_anomaly_to_database_and_siem(alert_json):
                     }
                 }
 
-                print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
-                send_json_packet(siem_msg)
+                # print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
+                # send_json_packet(siem_msg)
 
             except Exception as e:
                 print(f"Error inserting record: {e}")
@@ -1167,12 +1167,17 @@ def store_siem_ready_packet(siem_packet):
 
         # 4. Forward packet to SIEM (send original dict with structured timestamps)
              # To be done after phase 1 DO NOT REMOVE FROM HERE.
-        # success = send_json_packet(siem_packet)
+        success = send_json_packet(siem_packet)
 
-        # if success:
-        #     logging.info(f"[SIEM] SENT anomaly: {siem_packet}")
-        # else:
-        #     logging.warning("[SIEM] Send failed for anomaly")
+        ### For Rabbit MQ####
+        # msg_id = siem_packet.get("msg_id")
+        # print(f"messgae id before sending {msg_id}")
+        # success = send_to_rabbitmq(siem_packet, msg_id=msg_id, target="siem")
+
+        if success:
+            logging.info(f"[SIEM] SENT anomaly: {siem_packet}")
+        else:
+            logging.warning("[SIEM] Send failed for anomaly")
 
     except Exception as e:
         logging.error(f"[helper] Error storing/sending SIEM packet: {e}")

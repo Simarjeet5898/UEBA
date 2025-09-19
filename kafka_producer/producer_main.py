@@ -31,8 +31,11 @@ from kafka_producer.file_sys_monitoring_producer_udp import main as file_sys_mai
 from kafka_producer.login_events_producer_udp import main as login_events_main
 from kafka_producer.system_monitor_producer_udp import main as system_monitor_main
 
+
 ## Added by simar
 from kafka_producer.login_events_producer_udp import handle_shutdown_signal 
+from kafka_producer.clients_heartbeat_producer_udp import send_heartbeat # on 19th septemeber
+
 
 # === Thread Wrapper ===
 def run_producer(name, target):
@@ -86,6 +89,7 @@ def main():
         "FileSystemMonitoringProducer": file_sys_main,
         "LoginEventsProducer": login_events_main,
         "SystemMonitorProducer": system_monitor_main,
+        "HeartbeatProducer": send_heartbeat,
     }
 
     for name, func in producers.items():

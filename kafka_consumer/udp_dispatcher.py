@@ -21,6 +21,7 @@ CONSUMER_PORTS = {
     "file_sys_monitoring": 6005,
     "connected_entities": 6006,
     "login_events": 6007,
+    "clients_heartbeat": 6008, 
 }
 
 # show forward confirmations

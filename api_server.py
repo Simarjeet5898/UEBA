@@ -1380,6 +1380,31 @@ def api_delete_alert_suppression_config(config_id: int):
         raise HTTPException(status_code=404, detail="Config not found or not deleted")
     return {"message": "Config deleted successfully"}
 
+################################### CLIENT STATUS API ###############################################
+
+@app.get("/clients/active-count")
+def get_active_clients_count():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM client_status WHERE status='active'")
+    count = cursor.fetchone()[0]
+    cursor.close()
+    conn.close()
+    return {"active_clients": count}
+
+
+@app.get("/clients/status-list")
+def get_clients_status_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT client_id, last_seen, status FROM client_status ORDER BY client_id")
+    rows = cursor.fetchall()
+    columns = [desc[0] for desc in cursor.description]
+    result = [dict(zip(columns, row)) for row in rows]
+    cursor.close()
+    conn.close()
+    return result
+
 
 def main(stop_event=None):
 
