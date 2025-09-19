@@ -43,7 +43,7 @@ def store_heartbeat(event):
         client_id = event.get("client_id", "unknown")
         timestamp_str = event.get("timestamp")
         last_seen = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-        status = event.get("status", "active")   # 👈 take from producer
+        status = event.get("status", "active")   # take from producer
 
         # 2. Upsert client status
         cur.execute("""
@@ -51,7 +51,7 @@ def store_heartbeat(event):
             VALUES (%s, %s, %s)
             ON CONFLICT (client_id) DO UPDATE
             SET last_seen = EXCLUDED.last_seen,
-                status = EXCLUDED.status;   -- 👈 respect producer status
+                status = EXCLUDED.status;   -- respect producer status
         """, (client_id, last_seen, status))
 
         # 3. Mark old clients inactive (> 2 min, only if still active)
