@@ -94,6 +94,7 @@ config = load_config()
 #     except Exception as e:
 #         logging.error(f"RabbitMQ publish failed: {e}")
 #         return False
+
 def send_to_rabbitmq(packet, msg_id: int, target="siem") -> bool:
     """Publish anomaly packet to RabbitMQ based on msg_id mapping."""
     try:

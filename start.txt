@@ -157,6 +157,16 @@ sudo apt install wmctrl -y
 
 
     
+#######To block port FROM SOAR ###########
+simar@simar-ThinkBook-14-G2-ITL:~$ sudo iptables -L INPUT -n --line-numbers
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+1    DROP       6    --  0.0.0.0/0            0.0.0.0/0            tcp dpt:8080
+simar@simar-ThinkBook-14-G2-ITL:~$ sudo iptables -D INPUT -p tcp --dport 8080 -j DROP
+simar@simar-ThinkBook-14-G2-ITL:~$ sudo iptables -L INPUT -n --line-numbers
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+simar@simar-ThinkBook-14-G2-ITL:~$ 
 
 
 
