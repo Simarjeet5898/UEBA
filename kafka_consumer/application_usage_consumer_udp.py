@@ -98,6 +98,28 @@ DB_CONFIG = {
 
 # ─── Ensure application_usage table exists ───
 
+
+# def ensure_table(conn):
+#     cur = conn.cursor()
+#     cur.execute("""
+#         CREATE TABLE IF NOT EXISTS application_usage (
+#             id SERIAL PRIMARY KEY,
+#             username TEXT,
+#             process_name TEXT,
+#             pid INTEGER,
+#             ppid INTEGER,
+#             status TEXT,
+#             cpu_percent REAL,
+#             memory_percent REAL,
+#             start_time TIMESTAMP,
+#             end_time TIMESTAMP,
+#             duration_secs REAL,
+#             timestamp TIMESTAMP
+#         );
+#     """)
+#     conn.commit()
+#     cur.close()
+
 def ensure_table(conn):
     cur = conn.cursor()
     cur.execute("""
@@ -107,19 +129,23 @@ def ensure_table(conn):
             process_name TEXT,
             pid INTEGER,
             ppid INTEGER,
+            parent_name TEXT,
             cmdline TEXT,
-            terminal TEXT,
             status TEXT,
             cpu_percent REAL,
             memory_percent REAL,
             start_time TIMESTAMP,
             end_time TIMESTAMP,
             duration_secs REAL,
-            timestamp TIMESTAMP
+            timestamp TIMESTAMP,
+            ip_address TEXT,
+            mac_address TEXT,
+            network_activity BOOLEAN DEFAULT FALSE
         );
     """)
     conn.commit()
     cur.close()
+
 
 ############
 
@@ -150,74 +176,218 @@ def create_latency_monitoring_table(conn):
 
 
 
-# ─── Insert usage record ───
+# def insert_usage_record(conn, record):
+#     cur = conn.cursor()
+
+#     # Ensure optional fields are set to None if missing
+#     for key in ["end_time", "duration_secs"]:
+#         record.setdefault(key, None)
+
+#     try:
+#         event = record.get("event")
+
+#         if event == "launch":
+#             # Insert new row for this process instance
+#             insert_sql = """
+#                 INSERT INTO application_usage (
+#                     username, process_name, pid, ppid,
+#                     status, cpu_percent, memory_percent,
+#                     start_time, end_time, duration_secs, timestamp
+#                 ) VALUES (
+#                     %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
+#                     %(status)s, %(cpu_percent)s, %(memory_percent)s,
+#                     %(start_time)s, %(end_time)s, %(duration_secs)s, %(timestamp)s
+#                 );
+#             """
+#             cur.execute(insert_sql, record)
+
+#         elif event == "update":
+#             # Update live metrics for running process
+#             update_sql = """
+#                 UPDATE application_usage
+#                 SET cpu_percent   = %(cpu_percent)s,
+#                     memory_percent = %(memory_percent)s,
+#                     status        = %(status)s,
+#                     timestamp     = %(timestamp)s
+#                 WHERE pid = %(pid)s AND start_time = %(start_time)s;
+#             """
+#             cur.execute(update_sql, record)
+
+#         elif event == "exit":
+#             # Finalize row when process exits
+#             update_sql = """
+#                 UPDATE application_usage
+#                 SET end_time     = %(end_time)s,
+#                     duration_secs = %(duration_secs)s,
+#                     status        = 'inactive',
+#                     timestamp     = %(timestamp)s
+#                 WHERE pid = %(pid)s AND start_time = %(start_time)s;
+#             """
+#             cur.execute(update_sql, record)
+
+#             # Fallback: if no row existed (missed launch), insert it
+#             if cur.rowcount == 0:
+#                 insert_sql = """
+#                     INSERT INTO application_usage (
+#                         username, process_name, pid, ppid,
+#                         status, cpu_percent, memory_percent,
+#                         start_time, end_time, duration_secs, timestamp
+#                     ) VALUES (
+#                         %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
+#                         %(status)s, %(cpu_percent)s, %(memory_percent)s,
+#                         %(start_time)s, %(end_time)s, %(duration_secs)s, %(timestamp)s
+#                     );
+#                 """
+#                 cur.execute(insert_sql, record)
+
+#         conn.commit()
+
+#     except Exception as e:
+#         logging.error(f"Failed to insert/update record: {e}\nData: {record}")
+#         conn.rollback()
+
 def insert_usage_record(conn, record):
     cur = conn.cursor()
-    insert_sql = """
-        INSERT INTO application_usage (
-            username, process_name, pid, ppid, cmdline, terminal,
-            status, cpu_percent, memory_percent, start_time, end_time,
-            duration_secs, timestamp
-        ) VALUES (
-            %(username)s, %(process_name)s, %(pid)s, %(ppid)s, %(cmdline)s, %(terminal)s,
-            %(status)s, %(cpu_percent)s, %(memory_percent)s, %(start_time)s, %(end_time)s,
-            %(duration_secs)s, %(timestamp)s
-        );
-    """
 
-    # Ensure missing fields are set to None
-    for key in ["end_time", "duration_secs"]:
+    # Ensure optional fields are set to None if missing
+    for key in ["end_time", "duration_secs", "parent_name", "cmdline",
+                "ip_address", "mac_address", "network_activity"]:
         record.setdefault(key, None)
 
     try:
-        cur.execute(insert_sql, record)
+        event = record.get("event")
+
+        if event == "launch":
+            # Always insert new row on launch
+            insert_sql = """
+                INSERT INTO application_usage (
+                    username, process_name, pid, ppid,
+                    parent_name, cmdline, status,
+                    cpu_percent, memory_percent,
+                    start_time, end_time, duration_secs,
+                    timestamp, ip_address, mac_address, network_activity
+                ) VALUES (
+                    %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
+                    %(parent_name)s, %(cmdline)s, %(status)s,
+                    %(cpu_percent)s, %(memory_percent)s,
+                    %(start_time)s, %(end_time)s, %(duration_secs)s,
+                    %(timestamp)s, %(ip_address)s, %(mac_address)s, %(network_activity)s
+                );
+            """
+            cur.execute(insert_sql, record)
+
+        # elif event == "update":
+        #     # Try to update live metrics
+        #     update_sql = """
+        #         UPDATE application_usage
+        #         SET cpu_percent   = %(cpu_percent)s,
+        #             memory_percent = %(memory_percent)s,
+        #             status        = %(status)s,
+        #             timestamp     = %(timestamp)s,
+        #             network_activity = %(network_activity)s
+        #         WHERE pid = %(pid)s AND start_time = %(start_time)s;
+        #     """
+        #     cur.execute(update_sql, record)
+
+            # # If no row exists, insert as late launch
+            # if cur.rowcount == 0:
+            #     insert_sql = """
+            #         INSERT INTO application_usage (
+            #             username, process_name, pid, ppid,
+            #             parent_name, cmdline, status,
+            #             cpu_percent, memory_percent,
+            #             start_time, end_time, duration_secs,
+            #             timestamp, ip_address, mac_address, network_activity
+            #         ) VALUES (
+            #             %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
+            #             %(parent_name)s, %(cmdline)s, %(status)s,
+            #             %(cpu_percent)s, %(memory_percent)s,
+            #             %(start_time)s, %(end_time)s, %(duration_secs)s,
+            #             %(timestamp)s, %(ip_address)s, %(mac_address)s, %(network_activity)s
+            #         );
+            #     """
+            #     cur.execute(insert_sql, record)
+
+        elif event == "exit":
+            # Finalize row when process exits
+            update_sql = """
+                UPDATE application_usage
+                SET end_time     = %(end_time)s,
+                    duration_secs = %(duration_secs)s,
+                    status        = 'inactive',
+                    timestamp     = %(timestamp)s,
+                    network_activity = %(network_activity)s
+                WHERE pid = %(pid)s AND start_time = %(start_time)s;
+            """
+            cur.execute(update_sql, record)
+
+            # Fallback if no launch row was ever inserted
+            if cur.rowcount == 0:
+                insert_sql = """
+                    INSERT INTO application_usage (
+                        username, process_name, pid, ppid,
+                        parent_name, cmdline, status,
+                        cpu_percent, memory_percent,
+                        start_time, end_time, duration_secs,
+                        timestamp, ip_address, mac_address, network_activity
+                    ) VALUES (
+                        %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
+                        %(parent_name)s, %(cmdline)s, %(status)s,
+                        %(cpu_percent)s, %(memory_percent)s,
+                        %(start_time)s, %(end_time)s, %(duration_secs)s,
+                        %(timestamp)s, %(ip_address)s, %(mac_address)s, %(network_activity)s
+                    );
+                """
+                cur.execute(insert_sql, record)
+
         conn.commit()
+
     except Exception as e:
-        logging.error(f"Failed to insert record: {e}\nData: {record}")
+        logging.error(f"Failed to insert/update record: {e}\nData: {record}")
         conn.rollback()
     finally:
         cur.close()
 
 
-# def detect_anomalous_application_usage(record, state_cache={}):
 def detect_anomalous_application_usage(record, state_cache=None):
-
-    """
-    Detects anomalous application usage based on:
-    - Known sensitive applications
-    - Unusual CPU/memory usage
-    - Suspicious execution paths
-    - Abnormal frequency of launches
-    """
     if state_cache is None:
         state_cache = {}
 
     anomalies = []
 
-    # 1. Sensitive apps (security tools, hacking tools, etc.)
-    # sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
-    sensitive_apps = {
-    "nmap", "hydra", "sqlmap", "john", "airmon-ng",
-     
-    }
+    # 1. Sensitive apps
+    sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
     if record.get("process_name", "").lower() in sensitive_apps:
         anomalies.append(f"Sensitive application detected: {record['process_name']}")
 
-    # 2. High CPU or memory usage (above threshold)
-    cpu = record.get("cpu_percent", 0)
-    mem = record.get("memory_percent", 0)
+    # 2. High CPU/memory
+    cpu = record.get("cpu_percent", 0) or 0
+    mem = record.get("memory_percent", 0) or 0
     if cpu > 20:
         anomalies.append(f"High CPU usage detected ({cpu}%) by {record['process_name']}")
     if mem > 20:
         anomalies.append(f"High memory usage detected ({mem}%) by {record['process_name']}")
 
-    # 3. Suspicious paths (non-standard executable locations)
-    cmdline = record.get("cmdline", "").lower()
-    allowed_paths = ("/usr","/usr/bin", "/opt", "/snap", "/usr/local/bin")
-    if cmdline and not cmdline.startswith(allowed_paths):
-        anomalies.append(f"Suspicious execution path: {cmdline}")
+    # 3. Suspicious command line
+    cmdline = record.get("cmdline", "")
+    if cmdline:
+        cmdline_lower = cmdline.lower()
+        suspicious_tokens = ["powershell", "wget", "curl", "nc ", "ncat", "base64", "sh -c"]
+        if any(tok in cmdline_lower for tok in suspicious_tokens):
+            anomalies.append(f"Suspicious command line for {record['process_name']}: {cmdline}")
 
-    # 4. Odd-hour execution (midnight to 5AM)
+    # 4. Unusual parent process
+    parent = record.get("parent_name", "").lower()
+    proc = record.get("process_name", "").lower()
+    if parent and parent not in ("bash", "zsh", "gnome-shell", "explorer.exe", "init"):
+        anomalies.append(f"Unusual parent process: {parent} launched {proc}")
+
+    # 5. Unexpected network activity
+    if record.get("network_activity"):
+        if proc not in ("firefox", "brave", "chrome", "edge"):
+            anomalies.append(f"Unexpected network activity by {record['process_name']}")
+
+    # 6. Odd-hour execution
     try:
         ts = record.get("timestamp")
         ts = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
@@ -225,14 +395,12 @@ def detect_anomalous_application_usage(record, state_cache=None):
             anomalies.append(f"Unusual execution time: {ts.hour}:00 for {record['process_name']}")
     except Exception:
         pass
-    
 
-    # 5. Frequency-based anomaly detection (too many launches in 1 minute)
-    proc = record.get("process_name")
+    # 7. Frequency-based anomaly
     now = datetime.now()
     history = state_cache.setdefault(proc, [])
     history.append(now)
-    state_cache[proc] = [t for t in history if (now - t).seconds < 60]  # keep last 60s only
+    state_cache[proc] = [t for t in history if (now - t).seconds < 60]
     if len(state_cache[proc]) > 3:
         anomalies.append(f"Frequent launches of {proc} detected ({len(state_cache[proc])}/min)")
 
@@ -356,7 +524,7 @@ def main(stop_event=None):
                             "process_name": record.get("process_name"),
                             "pid": record.get("pid"),
                             "ppid": record.get("ppid"),
-                            "cmdline": record.get("cmdline"),
+                            # "cmdline": record.get("cmdline"),
                             "anomalous_application_name": record.get("process_name"),
                             "tty": record.get("terminal"),
                             "cpu_time": record.get("duration_secs"),

@@ -241,7 +241,54 @@ def get_current_login_from_last(username, terminal):
 shutdown_handled = False  # Global flag (ensure this is at the top with your globals)
 
 
-def handle_shutdown_signal(signum=None, frame=None):
+# def handle_shutdown_signal(signum=None, frame=None):
+#     global LOGIN_STATE, shutdown_handled
+#     if shutdown_handled:
+#         return
+#     shutdown_handled = True
+
+#     now = datetime.now()
+#     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+
+#     for (username, terminal, remote_ip), started_epoch in LOGIN_STATE.items():
+#         logout_time = time.time()
+#         duration = int(logout_time - started_epoch)
+#         last_login_time = get_last_login(username)
+
+#         is_remote = remote_ip not in ("", "Unknown", "localhost", "127.0.0.1", "127.0.1.1")
+#         auth_type = "ssh" if is_remote else "local"
+
+#         system_info = get_system_info()
+#         # geo_info = get_geolocation()
+#         source_mac = get_mac_address(remote_ip)
+#         source_hostname = resolve_hostname(remote_ip)
+
+#         msg = {
+#             "topic": "login-events",
+#             "event_type": "logout",
+#             "username": username,
+#             "login_time": datetime.fromtimestamp(started_epoch).strftime("%Y-%m-%d %H:%M:%S"),
+#             "logout_time": now_str,
+#             "last_login_time": last_login_time,
+#             "session_duration_seconds": duration,
+#             "timestamp": now_str,
+#             "remote_ip": remote_ip,
+#             "auth_type": auth_type,
+#             "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
+#             "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
+#             **system_info,
+#             # **geo_info,
+#         }
+
+#         msg["source_os"] = get_source_os()
+#         print(f"[DEBUG LOGOUT MSG] {json.dumps(msg, indent=2)}")
+
+#         # send via UDP instead of Kafka
+#         sock.sendto(json.dumps(msg).encode("utf-8"), (UDP_IP, UDP_PORT))
+
+#     sys.exit(0)
+
+def handle_shutdown_signal(signum=None, frame=None, exit_after=True):
     global LOGIN_STATE, shutdown_handled
     if shutdown_handled:
         return
@@ -286,7 +333,8 @@ def handle_shutdown_signal(signum=None, frame=None):
         # send via UDP instead of Kafka
         sock.sendto(json.dumps(msg).encode("utf-8"), (UDP_IP, UDP_PORT))
 
-    sys.exit(0)
+    if exit_after:
+        sys.exit(0)
 
 
 

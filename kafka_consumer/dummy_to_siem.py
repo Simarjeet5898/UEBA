@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field
 SIEM_URL = "http://10.229.40.94:5000/api/soc/v0_90/siem/addProcessedLog"
 
 # Fixed values
-EVENT_TYPE = 6        # SECURITY_EVENTS
-EVENT_SUB  = 38       # MALWARE_DETECTED
+EVENT_TYPE = 9        # UEBA_BEHAVIOUR_EVENTS
+EVENT_SUB  = 43       # PHISHING_ATTEMPT
 DEFAULT_SEV = 5       # CRITICAL
 
 app = FastAPI(title="UEBA Ransomware SIEM Test API")
@@ -66,18 +66,18 @@ def _build_siem_message(sig: AttackInput) -> dict:
         "eventType": "9",
         "eventName": str(EVENT_SUB),
         "severity": str(sev),
-        "eventReason": f"Ransomware detected",
+        "eventReason": f"Phishing detected",
         "attackerIp": sig.attacker_ip or "10.229.40.138",
-        "attackerInfo": "Ransomware module",
-        "deviceHostname": "test-host",
-        "deviceUsername": "test-user",
+        "attackerInfo": "N/A",
+        "deviceHostname": "host",
+        "deviceUsername": "user",
         "serviceName": sig.process_name,
         "servicePath": sig.resource or "N/A",
         "deviceType": 2,
         "destinationIp": "N/A",
         "deviceMacId": "7c:8a:e1:98:95:b9",
         "deviceIp": "10.229.40.154",
-        "logText": json.dumps({"notes": " RANSOMWARE ATTACK DETECTED"}),
+        "logText": json.dumps({"notes": " PHISHING ATTACK DETECTED"}),
         "url": SIEM_URL,
     }
     return {"MESSAGE": msg}
@@ -91,7 +91,7 @@ def send_to_siem(sig: AttackInput | None = None):
         payload = _build_siem_message(sig)
     else:
         payload = _build_siem_message(
-            AttackInput(process_name="dummy_proc", indicator="dummy")
+            AttackInput(process_name="proc", indicator="dummy")
         )
 
     print(">>> Sending SIEM payload:\n", json.dumps(payload, indent=2), flush=True)

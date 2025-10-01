@@ -1,0 +1,156 @@
+# UEBA Client Service Deployment Guide
+# ------------------------------------
+
+# STEP 1: Copy the binary
+# Put the ueba_client_vX.Y.Z binary in a stable folder.
+# Example: /home/hp/Document/UEBA/client   <-- adjust this path to where exe is kept
+
+chmod +x /home/hp/Document/UEBA/client/ueba_client_v1.2.2
+
+# STEP 2: Create the systemd service file
+# Always edit ExecStart and WorkingDirectory to match the folder where the exe is kept.
+
+sudo nano /etc/systemd/system/ueba_client.service
+
+# Paste the following content:
+
+[Unit]
+Description=UEBA Client v1.2.2
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2/ueba_client_v1.2.2
+ExecStop=/home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2/ueba_client_v1.2.2 --shutdown
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+# STEP 3: Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable ueba_client.service
+sudo systemctl start ueba_client.service
+
+# STEP 4: Check status and logs
+systemctl status ueba_client.service
+journalctl -u ueba_client.service -f
+
+# STEP 5: Stop / restart service when needed
+sudo systemctl stop ueba_client.service
+sudo systemctl restart ueba_client.service
+
+
+
+
+
+
+################## start service ##########
+sudo systemctl start ueba_client.service
+
+
+
+#################stop service ################
+sudo systemctl stop ueba_client.service
+
+
+
+############  Restart service###############
+sudo systemctl restart ueba_client.service
+
+
+############ check status ###################
+systemctl status ueba_client.service
+
+
+
+###########  Follow Logs ######################
+journalctl -u ueba_client.service -f
+
+
+
+############### for server###############
+sudo nano /etc/systemd/system/ueba_server.service
+or
+# ========================
+# UEBA SERVER SERVICE FULL LIFECYCLE
+# ========================
+
+# 1. Create the systemd service file
+sudo tee /etc/systemd/system/ueba_server.service > /dev/null << 'EOF'
+[Unit]
+Description=UEBA Server v1.2.2
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2/ueba_server_v1.2.2
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# 2. Reload systemd
+sudo systemctl daemon-reload
+
+# 3. Enable service to auto-start on boot
+sudo systemctl enable ueba_server.service
+
+# 4. Start service immediately
+sudo systemctl start ueba_server.service
+
+# 5. Check status
+systemctl status ueba_server.service
+
+# 6. View logs
+journalctl -u ueba_server.service -f
+
+# ========================
+# MANAGEMENT COMMANDS
+# ========================
+# Stop the service
+# sudo systemctl stop ueba_server.service
+#
+# Restart the service
+# sudo systemctl restart ueba_server.service
+#
+# Check status again
+# systemctl status ueba_server.service
+#
+# ========================
+# DELETE THE SERVICE
+# ========================
+# Stop service
+# sudo systemctl stop ueba_server.service
+#
+# Disable auto-start
+# sudo systemctl disable ueba_server.service
+#
+# Remove service file
+# sudo rm /etc/systemd/system/ueba_server.service
+#
+# Reload systemd
+# sudo systemctl daemon-reload
+#
+# Verify removal
+# systemctl status ueba_server.service
+
+
+
+
+
+
+
+
+

@@ -2064,35 +2064,457 @@ def get_app_latency_metrics(pid):
 
 #################### UEBA_11::Application Usage Monitoring ###############################
 
-def get_installed_exec_commands():
-    """
-    Extracts executable commands from .desktop files (from Exec= lines).
-    Returns a set of lowercase base commands (e.g., 'libreoffice', 'meld').
-    """
-    desktop_dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
-    exec_names = set()
-    exec_pattern = re.compile(r'^Exec=(\S+)')
+# def get_installed_exec_commands():
+#     """
+#     Extracts executable commands from .desktop files (from Exec= lines).
+#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'meld').
+#     """
+#     desktop_dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
+#     exec_names = set()
+#     exec_pattern = re.compile(r'^Exec=(\S+)')
 
-    for path in desktop_dirs:
-        if os.path.exists(path):
-            for file in os.listdir(path):
-                if file.endswith(".desktop"):
-                    full_path = os.path.join(path, file)
-                    try:
-                        with open(full_path, 'r') as f:
-                            for line in f:
-                                match = exec_pattern.match(line)
-                                if match:
-                                    cmd = os.path.basename(match.group(1)).lower()
-                                    exec_names.add(cmd)
-                    except Exception:
-                        continue
-    return exec_names
+#     for path in desktop_dirs:
+#         if os.path.exists(path):
+#             for file in os.listdir(path):
+#                 if file.endswith(".desktop"):
+#                     full_path = os.path.join(path, file)
+#                     try:
+#                         with open(full_path, 'r') as f:
+#                             for line in f:
+#                                 match = exec_pattern.match(line)
+#                                 if match:
+#                                     cmd = os.path.basename(match.group(1)).lower()
+#                                     exec_names.add(cmd)
+#                     except Exception:
+#                         continue
+#     return exec_names
 
-INSTALLED_EXEC_NAMES = get_installed_exec_commands()
+# def get_installed_exec_commands():
+#     """
+#     Extract executable commands from .desktop files (Exec= lines).
+#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'meld').
+#     """
+#     desktop_dirs = [
+#         '/usr/share/applications',
+#         os.path.expanduser('~/.local/share/applications'),
+#         '/var/lib/flatpak/exports/share/applications'
+#     ]
+#     exec_names = set()
+#     exec_pattern = re.compile(r'^Exec=(.+)', re.IGNORECASE)
+
+#     for path in desktop_dirs:
+#         if os.path.exists(path):
+#             for file in os.listdir(path):
+#                 if not file.endswith(".desktop"):
+#                     continue
+#                 full_path = os.path.join(path, file)
+#                 try:
+#                     with open(full_path, 'r', encoding="utf-8", errors="ignore") as f:
+#                         for line in f:
+#                             line = line.strip()
+#                             match = exec_pattern.match(line)
+#                             if match:
+#                                 # Split Exec= line into tokens (remove placeholders like %U, %f, etc.)
+#                                 parts = match.group(1).split()
+#                                 if not parts:
+#                                     continue
+#                                 cmd = os.path.basename(parts[0]).lower()
+#                                 # Ignore placeholder-like entries
+#                                 if cmd and not cmd.startswith('%'):
+#                                     exec_names.add(cmd)
+#                                 break  # stop after first Exec= line
+#                 except Exception:
+#                     continue
+
+#     return exec_names
+
+# import shlex
+
+# def get_installed_exec_commands():
+#     """
+#     Extract executable commands from .desktop files (Exec= lines).
+#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'firefox', 'code').
+#     """
+#     desktop_dirs = [
+#         '/usr/share/applications',
+#         os.path.expanduser('~/.local/share/applications'),
+#         '/var/lib/flatpak/exports/share/applications',
+#         os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),
+#         '/var/lib/snapd/desktop/applications',
+#     ]
+#     exec_names = set()
+#     exec_pattern = re.compile(r'^\s*Exec\s*=\s*(.+)$', re.IGNORECASE)
+
+#     def _extract_cmd_from_exec(exec_value: str) -> str | None:
+#         # split respecting quotes
+#         try:
+#             tokens = shlex.split(exec_value, posix=True)
+#         except Exception:
+#             tokens = exec_value.split()
+
+#         if not tokens:
+#             return None
+
+#         # Drop leading env wrapper and VAR= assignments
+#         i = 0
+#         if tokens[i] in ('env', '/usr/bin/env'):
+#             i += 1
+#         while i < len(tokens) and '=' in tokens[i] and not tokens[i].startswith('/'):
+#             i += 1
+#         if i >= len(tokens):
+#             return None
+
+#         # Handle "flatpak run <app-id>" launchers
+#         if tokens[i] == 'flatpak' and i + 1 < len(tokens) and tokens[i+1] == 'run':
+#             # app-id usually next; map "org.mozilla.firefox" -> "firefox"
+#             if i + 2 < len(tokens):
+#                 app_id = tokens[i+2]
+#                 base = app_id.split('.')[-1].lower()
+#                 return base
+
+#         # Normal case: first real executable path/name
+#         exe = tokens[i]
+#         # ignore placeholders like %U etc.
+#         if exe.startswith('%'):
+#             return None
+#         return os.path.basename(exe).lower()
+
+#     for path in desktop_dirs:
+#         if not os.path.exists(path):
+#             continue
+#         for file in os.listdir(path):
+#             if not file.endswith(".desktop"):
+#                 continue
+#             full_path = os.path.join(path, file)
+#             try:
+#                 with open(full_path, 'r', encoding="utf-8", errors="ignore") as f:
+#                     for line in f:
+#                         m = exec_pattern.match(line)
+#                         if not m:
+#                             continue
+#                         cmd = _extract_cmd_from_exec(m.group(1).strip())
+#                         if cmd:
+#                             exec_names.add(cmd)
+#                         break  # use first Exec= only
+#             except Exception:
+#                 continue
+
+#     return exec_names
+
+
+# INSTALLED_EXEC_NAMES = get_installed_exec_commands()
 # print(sorted(INSTALLED_EXEC_NAMES))
 
-# Background/system services to exclude explicitly
+# # Background/system services to exclude explicitly
+# BACKGROUND_NAMES = {
+#     "gnome-shell", "gnome-session-binary", "gnome-remote-desktop-daemon",
+#     "xdg-desktop-portal-gtk", "xdg-desktop-portal-gnome", "ibus-extension-gtk3",
+#     "evolution-alarm-notify", "snap", "gnome-settings-daemon",
+#     "dbus-daemon", "gjs", "bash", "python", "update-notifier",
+#     "networkd-dispatcher", "unattended-upgrade", "pipewire",
+#     "pipewire-pulse", "wireplumber", "gdm-wayland-session",
+#     "gnome-keyring-daemon", "xwayland", "snapd-desktop-integration",
+#     "networkd-dispat", "unattended-upgr", "ibus-daemon", "crashhelper","check-new-relea",
+#     "containerd", "containerd-shim-runc-v2", "fc-cache",
+#     "systemd", "udisksd", "gvfsd", "gvfs-udisks2-volume-monitor",
+#     "whoopsie", "polkitd","epmd","dockerd","systemd-journald","systemd-resolved","systemd-timesyncd",
+#     "systemd-udevd","snapd","systemd-logind","systemd-oomd","oosplash","systemd-timedated","inet_gethost",
+#     "beam.smp","postgres","psql","pingsender"
+
+# }
+
+# def track_application_usage(poll_interval=0.25):
+#     """
+#     Track user-facing applications, yielding launch/exit events with status.
+#     Uses (pid, create_time) keys to avoid PID reuse issues.
+#     """
+
+#     # Prime CPU usage counters
+#     primed_procs = {}
+#     for proc in psutil.process_iter(attrs=["pid", "name", "username"]):
+#         try:
+#             proc.cpu_percent(None)
+#             primed_procs[proc.pid] = proc
+#         except (psutil.NoSuchProcess, psutil.AccessDenied):
+#             continue
+#     time.sleep(1)
+
+#     active_processes = {}
+
+#     while True:
+#         current_pids = set()
+#         now = datetime.now()
+
+#         for proc in psutil.process_iter(attrs=[
+#             "pid", "name", "username", "ppid", "cmdline",
+#             "memory_percent", "terminal", "create_time"
+#         ]):
+#             try:
+#                 info = proc.info
+#                 pid = info["pid"]
+#                 ppid = info.get("ppid")
+#                 create_time = info.get("create_time")
+#                 proc_key = (pid, create_time)
+#                 current_pids.add(proc_key)
+
+#                 if info["username"] is None:
+#                     continue
+
+#                 name = info.get("name", "").lower()
+#                 cmdline = info.get("cmdline", [])
+#                 exe_base = os.path.basename(cmdline[0]).lower() if cmdline else ""
+#                 full_cmd = " ".join(cmdline) if cmdline else ""
+
+#                 # LibreOffice variants
+#                 # if exe_base == "soffice.bin":
+#                 #     if "--writer" in cmdline: name = "libreoffice-writer"
+#                 #     elif "--calc" in cmdline: name = "libreoffice-calc"
+#                 #     elif "--impress" in cmdline: name = "libreoffice-impress"
+#                 #     elif "--draw" in cmdline: name = "libreoffice-draw"
+#                 #     else: name = "libreoffice"
+#                 if exe_base == "soffice.bin":
+#                     if "--writer" in cmdline or any(arg.endswith(".odt") for arg in cmdline):
+#                         name = "libreoffice-writer"
+#                     elif "--calc" in cmdline or any(arg.endswith(".ods") for arg in cmdline):
+#                         name = "libreoffice-calc"
+#                     elif "--impress" in cmdline or any(arg.endswith(".odp") for arg in cmdline):
+#                         name = "libreoffice-impress"
+#                     elif "--draw" in cmdline or any(arg.endswith(".odg") for arg in cmdline):
+#                         name = "libreoffice-draw"
+#                     else:
+#                         name = "libreoffice"
+
+
+#                 if exe_base == "gnome-terminal.real":
+#                     name = exe_base = "gnome-terminal"
+
+#                 # --- NEW: wrapper normalization (python/java launching GUI apps)
+#                 if exe_base in ("python3", "python", "java") and len(cmdline) > 1:
+#                     script_name = os.path.basename(cmdline[1]).lower()
+#                     if script_name.endswith(".py"):
+#                         script_name = script_name[:-3]
+#                     name = script_name
+#                     exe_base = script_name
+
+#                 normalized_exe = exe_base.strip().lower()
+#                 normalized_name = name.strip().lower()
+
+#                 # Skip background/system apps (including all systemd-*)
+#                 if (
+#                     normalized_name in BACKGROUND_NAMES or
+#                     normalized_exe in BACKGROUND_NAMES or
+#                     normalized_name.startswith("systemd-")
+#                 ):
+#                     continue
+
+#                 # Skip self-parenting
+#                 try:
+#                     parent = psutil.Process(ppid)
+#                     if parent.name().lower() == normalized_name:
+#                         continue
+#                 except (psutil.NoSuchProcess, psutil.AccessDenied):
+#                     pass
+
+#                 # Skip helper subprocesses
+#                 skip_tokens = [
+#                     "--type=", "-contentproc", "tsserver.js", "typingsInstaller.js",
+#                     "jsonServerMain", "crashpad_handler", "WebExtensions", "Socket Process",
+#                     "RDD Process", "Isolated Web Co", "Privileged Cont", "Web Content"
+#                 ]
+#                 if any(token in full_cmd or token in normalized_name for token in skip_tokens):
+#                     continue
+
+#                 if "--gapplication-service" in full_cmd:
+#                     continue
+
+#                 # --- NEW: follow first non-background child if wrapper dies quickly
+#                 if exe_base in ("python3", "python", "java"):
+#                     try:
+#                         children = proc.children(recursive=True)
+#                         for child in children:
+#                             child_name = child.name().lower()
+#                             if child_name not in BACKGROUND_NAMES and not child_name.startswith("systemd-"):
+#                                 exe_base = child_name
+#                                 name = child_name
+#                                 cmdline = child.cmdline()
+#                                 full_cmd = " ".join(cmdline)
+#                                 break
+#                     except (psutil.NoSuchProcess, psutil.AccessDenied):
+#                         pass
+
+#                 # Check if user-facing app
+#                 is_user_app = (
+#                     normalized_exe in INSTALLED_EXEC_NAMES or
+#                     normalized_name in INSTALLED_EXEC_NAMES or
+#                     "/snap/" in full_cmd or "/snap/bin/" in full_cmd or
+#                     "/usr/bin/" in full_cmd or "/usr/lib/" in full_cmd or
+#                     "/opt/" in full_cmd or ".AppImage" in full_cmd or
+#                     "/var/lib/flatpak/" in full_cmd or
+#                     full_cmd.startswith("flatpak run ")
+#                 )
+#                 if not is_user_app:
+#                     continue
+
+#                 # CPU + memory
+#                 try:
+#                     primed_proc = primed_procs.get(proc.pid)
+#                     if primed_proc:
+#                         cpu = primed_proc.cpu_percent(interval=None)
+#                     else:
+#                         cpu = proc.cpu_percent(interval=None)
+#                 except (psutil.NoSuchProcess, psutil.AccessDenied):
+#                     cpu = 0.0
+#                 mem = info.get("memory_percent", 0.0)
+#                 active_status = "active" if cpu > 0.5 or mem > 0.5 else "inactive"
+
+#                 if proc_key not in active_processes:
+#                     proc.cpu_percent(None)
+#                     # New process → launch event
+#                     record = {
+#                         "username": info["username"],
+#                         "process_name": name,
+#                         "pid": pid,
+#                         "ppid": ppid,
+#                         "cmdline": full_cmd,
+#                         "terminal": info.get("terminal"),
+#                         "status": "active",
+#                         "cpu_percent": cpu,
+#                         "memory_percent": mem,
+#                         "start_time": datetime.fromtimestamp(create_time),
+#                         "last_updated": now,
+#                         "reported": True,
+#                         "_missing_once": False
+#                     }
+#                     latency = get_app_latency_metrics(pid)
+#                     yield {**record, **latency, "event": "launch", "timestamp": now}
+#                     active_processes[proc_key] = record
+#                 else:
+#                     # Update existing
+#                     record = active_processes[proc_key]
+#                     record.update({
+#                         "cpu_percent": cpu,
+#                         "memory_percent": mem,
+#                         "status": active_status,
+#                         "last_updated": now,
+#                         "_missing_once": False
+#                     })
+#                     yield {**record, "event": "update", "timestamp": now} 
+
+#             except (psutil.NoSuchProcess, psutil.AccessDenied, IndexError):
+#                 continue
+
+#         # # Handle exits (buffered for 2 scans)
+#         # for proc_key, record in list(active_processes.items()):
+#         #     if proc_key not in current_pids:
+#         #         if record["_missing_once"]:
+#         #             active_processes.pop(proc_key, None)
+#         #             record["end_time"] = now
+#         #             record["duration_secs"] = (now - record["start_time"]).total_seconds()
+#         #             record["timestamp"] = now
+#         #             record["event"] = "exit"
+#         #             record["status"] = "inactive"
+#         #             latency = get_app_latency_metrics(record["pid"])
+#         #             record.update(latency)
+#         #             yield record
+#         #         else:
+#         #             record["_missing_once"] = True
+#                 # Handle exits (immediate if PID truly gone; else one-buffer)
+#         for proc_key, record in list(active_processes.items()):
+#             if proc_key not in current_pids:
+#                 pid = record["pid"]
+#                 pid_gone = not psutil.pid_exists(pid)
+#                 missing_once = record.get("_missing_once", False)
+
+#                 if pid_gone or missing_once:
+#                     active_processes.pop(proc_key, None)
+#                     now = datetime.now()
+#                     record["end_time"] = now
+#                     record["duration_secs"] = (now - record["start_time"]).total_seconds()
+#                     record["timestamp"] = now
+#                     record["event"] = "exit"
+#                     record["status"] = "inactive"
+#                     latency = get_app_latency_metrics(pid)
+#                     record.update(latency)
+#                     yield record
+#                 else:
+#                     record["_missing_once"] = True
+
+
+#         time.sleep(poll_interval)
+
+
+import shlex, socket, uuid, psutil, os, re, time
+from datetime import datetime
+
+def get_installed_exec_commands():
+    """
+    Extract executable commands from .desktop files (Exec= lines).
+    Returns a set of lowercase base commands (e.g., 'libreoffice', 'firefox', 'code').
+    """
+    desktop_dirs = [
+        '/usr/share/applications',
+        os.path.expanduser('~/.local/share/applications'),
+        '/var/lib/flatpak/exports/share/applications',
+        os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),
+        '/var/lib/snapd/desktop/applications',
+    ]
+    exec_names = set()
+    exec_pattern = re.compile(r'^\s*Exec\s*=\s*(.+)$', re.IGNORECASE)
+
+    def _extract_cmd_from_exec(exec_value: str) -> str | None:
+        try:
+            tokens = shlex.split(exec_value, posix=True)
+        except Exception:
+            tokens = exec_value.split()
+
+        if not tokens:
+            return None
+
+        i = 0
+        if tokens[i] in ('env', '/usr/bin/env'):
+            i += 1
+        while i < len(tokens) and '=' in tokens[i] and not tokens[i].startswith('/'):
+            i += 1
+        if i >= len(tokens):
+            return None
+
+        if tokens[i] == 'flatpak' and i + 1 < len(tokens) and tokens[i+1] == 'run':
+            if i + 2 < len(tokens):
+                app_id = tokens[i+2]
+                base = app_id.split('.')[-1].lower()
+                return base
+
+        exe = tokens[i]
+        if exe.startswith('%'):
+            return None
+        return os.path.basename(exe).lower()
+
+    for path in desktop_dirs:
+        if not os.path.exists(path):
+            continue
+        for file in os.listdir(path):
+            if not file.endswith(".desktop"):
+                continue
+            full_path = os.path.join(path, file)
+            try:
+                with open(full_path, 'r', encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        m = exec_pattern.match(line)
+                        if not m:
+                            continue
+                        cmd = _extract_cmd_from_exec(m.group(1).strip())
+                        if cmd:
+                            exec_names.add(cmd)
+                        break
+            except Exception:
+                continue
+
+    return exec_names
+
+
+INSTALLED_EXEC_NAMES = get_installed_exec_commands()
+print(sorted(INSTALLED_EXEC_NAMES))
+
 BACKGROUND_NAMES = {
     "gnome-shell", "gnome-session-binary", "gnome-remote-desktop-daemon",
     "xdg-desktop-portal-gtk", "xdg-desktop-portal-gnome", "ibus-extension-gtk3",
@@ -2104,12 +2526,17 @@ BACKGROUND_NAMES = {
     "networkd-dispat", "unattended-upgr", "ibus-daemon", "crashhelper","check-new-relea",
     "containerd", "containerd-shim-runc-v2", "fc-cache",
     "systemd", "udisksd", "gvfsd", "gvfs-udisks2-volume-monitor",
-    "whoopsie", "polkitd"
+    "whoopsie", "polkitd","epmd","dockerd","systemd-journald","systemd-resolved","systemd-timesyncd",
+    "systemd-udevd","snapd","systemd-logind","systemd-oomd","oosplash","systemd-timedated","inet_gethost",
+    "beam.smp","postgres","psql","pingsender"
 }
 
-def track_application_usage(poll_interval=5):
-    
-    # Prime all processes and cache the proc objects
+def track_application_usage(poll_interval=0.25):
+    """
+    Track user-facing applications, yielding launch/exit/update events with status.
+    Adds: parent_name, ip_address, mac_address, network_activity.
+    """
+
     primed_procs = {}
     for proc in psutil.process_iter(attrs=["pid", "name", "username"]):
         try:
@@ -2119,49 +2546,72 @@ def track_application_usage(poll_interval=5):
             continue
     time.sleep(1)
 
-
     active_processes = {}
 
     while True:
         current_pids = set()
         now = datetime.now()
 
-        total_processes = 0
-        matched_apps = 0
-        current_app_names = set()
-
         for proc in psutil.process_iter(attrs=[
-        "pid", "name", "username", "ppid", "cmdline",
-        "memory_percent", "terminal", "create_time"
+            "pid", "name", "username", "ppid", "cmdline",
+            "memory_percent", "terminal", "create_time"
         ]):
             try:
                 info = proc.info
-                total_processes += 1
                 pid = info["pid"]
                 ppid = info.get("ppid")
-                current_pids.add(pid)
+                create_time = info.get("create_time")
+                proc_key = (pid, create_time)
+                current_pids.add(proc_key)
 
                 if info["username"] is None:
                     continue
 
                 name = info.get("name", "").lower()
                 cmdline = info.get("cmdline", [])
+                exe_base = os.path.basename(cmdline[0]).lower() if cmdline else ""
+                full_cmd = " ".join(cmdline) if cmdline else ""
 
-                # Safely extract executable base name
-                exe_base = os.path.basename(cmdline[0]).lower() if isinstance(cmdline, (list, tuple)) and cmdline else ""
+                if exe_base == "soffice.bin":
+                    if "--writer" in cmdline or any(arg.endswith(".odt") for arg in cmdline):
+                        name = "libreoffice-writer"
+                    elif "--calc" in cmdline or any(arg.endswith(".ods") for arg in cmdline):
+                        name = "libreoffice-calc"
+                    elif "--impress" in cmdline or any(arg.endswith(".odp") for arg in cmdline):
+                        name = "libreoffice-impress"
+                    elif "--draw" in cmdline or any(arg.endswith(".odg") for arg in cmdline):
+                        name = "libreoffice-draw"
+                    else:
+                        name = "libreoffice"
 
-                # Safely join full command line
-                full_cmd = " ".join(cmdline) if isinstance(cmdline, (list, tuple)) else ""
+                if exe_base == "gnome-terminal.real":
+                    name = exe_base = "gnome-terminal"
 
-                # Normalize for filtering
+                if exe_base in ("python3", "python", "java") and len(cmdline) > 1:
+                    script_name = os.path.basename(cmdline[1]).lower()
+                    if script_name.endswith(".py"):
+                        script_name = script_name[:-3]
+                    name = script_name
+                    exe_base = script_name
+
                 normalized_exe = exe_base.strip().lower()
                 normalized_name = name.strip().lower()
 
-                # Skip known background/system apps
-                if normalized_name in BACKGROUND_NAMES or normalized_exe in BACKGROUND_NAMES:
+                if (
+                    normalized_name in BACKGROUND_NAMES or
+                    normalized_exe in BACKGROUND_NAMES or
+                    normalized_name.startswith("systemd-")
+                ):
                     continue
 
-                # Skip known subprocesses used by browsers/editors
+                try:
+                    parent = psutil.Process(ppid)
+                    parent_name = parent.name()
+                    if parent.name().lower() == normalized_name:
+                        continue
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    parent_name = None
+
                 skip_tokens = [
                     "--type=", "-contentproc", "tsserver.js", "typingsInstaller.js",
                     "jsonServerMain", "crashpad_handler", "WebExtensions", "Socket Process",
@@ -2170,90 +2620,125 @@ def track_application_usage(poll_interval=5):
                 if any(token in full_cmd or token in normalized_name for token in skip_tokens):
                     continue
 
-                #  Keep heuristics for Snap, AppImage, etc.
+                if "--gapplication-service" in full_cmd:
+                    continue
+
+                if exe_base in ("python3", "python", "java"):
+                    try:
+                        children = proc.children(recursive=True)
+                        for child in children:
+                            child_name = child.name().lower()
+                            if child_name not in BACKGROUND_NAMES and not child_name.startswith("systemd-"):
+                                exe_base = child_name
+                                name = child_name
+                                cmdline = child.cmdline()
+                                full_cmd = " ".join(cmdline)
+                                break
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
                 is_user_app = (
                     normalized_exe in INSTALLED_EXEC_NAMES or
                     normalized_name in INSTALLED_EXEC_NAMES or
-                    full_cmd.startswith("/snap/") or
-                    "/snap/" in full_cmd or
-                    "/opt/" in full_cmd or
-                    ".AppImage" in full_cmd or
-                    "/usr/bin/" in full_cmd
+                    "/snap/" in full_cmd or "/snap/bin/" in full_cmd or
+                    "/usr/bin/" in full_cmd or "/usr/lib/" in full_cmd or
+                    "/opt/" in full_cmd or ".AppImage" in full_cmd or
+                    "/var/lib/flatpak/" in full_cmd or
+                    full_cmd.startswith("flatpak run ")
                 )
-
                 if not is_user_app:
                     continue
 
-                #  Main user-facing application
-                matched_apps += 1
-                current_app_names.add(name or exe_base)
-
-                # Track status as active/inactive based on recent usage
-                # cpu = info.get("cpu_percent", 0.0)
-                # try:
-                #     cpu = proc.cpu_percent(interval=0.1)
-                # except (psutil.NoSuchProcess, psutil.AccessDenied):
-                #     cpu = 0.0
                 try:
                     primed_proc = primed_procs.get(proc.pid)
                     if primed_proc:
-                        cpu = primed_proc.cpu_percent(interval=None)  # ← second call, now gives real value
+                        cpu = primed_proc.cpu_percent(interval=None)
                     else:
-                        cpu = proc.cpu_percent(interval=None)  # fallback
+                        cpu = proc.cpu_percent(interval=None)
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     cpu = 0.0
+
                 mem = info.get("memory_percent", 0.0)
                 active_status = "active" if cpu > 0.5 or mem > 0.5 else "inactive"
 
-                if pid not in active_processes:
-                    active_processes[pid] = {
+                # --- extra fields ---
+                ip_address = None
+                try:
+                    ip_address = socket.gethostbyname(socket.gethostname())
+                except Exception:
+                    pass
+
+                mac_address = ':'.join(
+                    '{:02x}'.format((uuid.getnode() >> ele) & 0xff)
+                    for ele in range(40, -1, -8)
+                )
+
+                network_activity = False
+                try:
+                    conns = proc.connections(kind='inet')
+                    if conns:
+                        network_activity = True
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+                if proc_key not in active_processes:
+                    proc.cpu_percent(None)
+                    record = {
                         "username": info["username"],
-                        "process_name": info["name"],
+                        "process_name": name,
                         "pid": pid,
                         "ppid": ppid,
+                        "parent_name": parent_name,
                         "cmdline": full_cmd,
                         "terminal": info.get("terminal"),
-                        "status": active_status,
+                        "status": "active",
                         "cpu_percent": cpu,
                         "memory_percent": mem,
-                        "start_time": datetime.fromtimestamp(info["create_time"]),
+                        "start_time": datetime.fromtimestamp(create_time),
                         "last_updated": now,
-                        "reported": False  #  used for deduplication
+                        "reported": True,
+                        "_missing_once": False,
+                        "ip_address": ip_address,
+                        "mac_address": mac_address,
+                        "network_activity": network_activity
                     }
-                else:
-                    # Update dynamic info for still-active apps
-                    active_processes[pid]["cpu_percent"] = cpu
-                    active_processes[pid]["memory_percent"] = mem
-                    active_processes[pid]["status"] = active_status
-                    active_processes[pid]["last_updated"] = now
+                    latency = get_app_latency_metrics(pid)
+                    yield {**record, **latency, "event": "launch", "timestamp": now}
+                    active_processes[proc_key] = record
+                # else:
+                #     record = active_processes[proc_key]
+                #     record.update({
+                #         "cpu_percent": cpu,
+                #         "memory_percent": mem,
+                #         "status": active_status,
+                #         "last_updated": now,
+                #         "_missing_once": False,
+                #         "network_activity": network_activity
+                #     })
+                #     # yield {**record, "event": "update", "timestamp": now} 
 
             except (psutil.NoSuchProcess, psutil.AccessDenied, IndexError):
                 continue
 
-        for pid, record in active_processes.items():
-            if not record["reported"]:
-                latency = get_app_latency_metrics(pid)
-                yield {
-                    **record,
-                    **latency,
-                    "event": "launch",
-                    "timestamp": record["last_updated"]
-                }
-                record["reported"] = True  #  prevent re-yield
+        for proc_key, record in list(active_processes.items()):
+            if proc_key not in current_pids:
+                pid = record["pid"]
+                pid_gone = not psutil.pid_exists(pid)
+                missing_once = record.get("_missing_once", False)
 
-        # Detect and yield exits
-        for pid in list(active_processes.keys()):
-            if pid not in current_pids:
-                record = active_processes.pop(pid)
-                record["end_time"] = now
-                record["duration_secs"] = (now - record["start_time"]).total_seconds()
-                record["timestamp"] = now
-                record["event"] = "exit"
-
-                latency = get_app_latency_metrics(pid)
-                record.update(latency)
-
-                yield record
+                if pid_gone or missing_once:
+                    active_processes.pop(proc_key, None)
+                    now = datetime.now()
+                    record["end_time"] = now
+                    record["duration_secs"] = (now - record["start_time"]).total_seconds()
+                    record["timestamp"] = now
+                    record["event"] = "exit"
+                    record["status"] = "inactive"
+                    latency = get_app_latency_metrics(record["pid"])
+                    record.update(latency)
+                    yield record
+                else:
+                    record["_missing_once"] = True
 
         time.sleep(poll_interval)
 

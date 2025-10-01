@@ -59,7 +59,7 @@ def store_heartbeat(event):
             UPDATE client_status
             SET status = 'inactive'
             WHERE status='active'
-              AND last_seen < (NOW() - INTERVAL '2 minutes');
+              AND last_seen < (NOW() - INTERVAL '10 seconds');
         """)
 
         # 4. Count active clients

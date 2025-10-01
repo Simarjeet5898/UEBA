@@ -85,6 +85,7 @@ with open(CONFIG_PATH) as f:
 
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
+SCAN_INTERVAL = int(config.get("SCAN_INTERVAL", 5))
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -115,6 +116,7 @@ def collect_metrics():
     collectors = {
         "cpu_usage":           get_cpu_usage,#psutil.cpu_percent,
         "memory_usage":        lambda: psutil.virtual_memory().percent,
+        "ram_usage": lambda: psutil.virtual_memory().used / (1024 * 1024),
         "startup_latency":      get_startup_latency,
         "per_process_memory":        lambda: get_per_process_memory_usage(),
         "active_processes":    lambda: pid_count,
@@ -207,6 +209,7 @@ def collect_metrics():
         "timestamp":             now_str,
         "cpu_usage":             results["cpu_usage"],
         "memory_usage":          results["memory_usage"],
+        "ram_usage": results["ram_usage"],
         "startup_latency":       results["startup_latency"],
         "per_process_memory":    results["per_process_memory"],
         "disk_read_rate":        results["disk_read_rate"],
@@ -285,67 +288,6 @@ def collect_metrics():
 
 
 
-
-# # ─── Entry point ─────────────────────────────────────────────────────────────
-# if __name__ == "__main__":
-#     while True:
-
-#         data = collect_metrics()
-#         data["login_time"] = get_last_unlock()
-#         data = convert_datetime(data) 
-        
-#         if data:
-#             try:
-#                 producer.send('system-metrics', data)
-#                 #logging.info(f"Sent metrics: {data}")
-                
-#                 important_metrics = {
-#                 "timestamp": data.get("timestamp"),
-#                 "cpu_usage": data.get("cpu_usage"),
-#                 "memory_usage": data.get("memory_usage"),
-#                 "startup_latency": data.get("startup_latency"),
-#                 # "per_process_memory": data.get("per_process_memory"),
-#                 "disk_read_rate": data.get("disk_read_rate"),
-#                  "disk_write_rate": data.get("disk_write_rate"),
-#                 "network_bytes_sent": data.get("network_bytes_sent"),
-#                  "network_bytes_recv": data.get("network_bytes_recv"),
-#                 "username": data.get("username"),
-#                 # "failed_logins": data.get("failed_logins"),
-#                 # "failed_logins_by_user": data.get("failed_logins_by_user"),
-#                 # "failed_logins_by_ip": data.get("failed_logins_by_ip"),
-#                 # "failed_ssh_attempts": data.get("failed_ssh_attempts"),
-#                 # "expired_credential_attempts": data.get("expired_credential_attempts"),
-#                 # "dictionary_attack_signatures": data.get("dictionary_attack_signatures"),
-#                 # "gpu_usage": data.get("gpu_usage"),
-#                 "system_temperature": data.get("system_temperature"),
-#                 "avg_load": data.get("avg_load"),
-#                 # "account_lockouts": data.get("account_lockouts"),
-#                 # "locked_users": data.get("locked_users"),
-#                 # "new_users": data.get("new_users"),        
-#                 # "mac_address": data.get("mac_address"),
-#                 # "ip_addresses": data.get("ip_addresses"),
-#                 #   "successful_logins": data.get("successful_logins"),
-# 		          # "sudo_failures":         data.get("sudo_failures"), 
-#                 # "privilege_escalation_attempts": data.get("privilege_escalation_attempts"),
-#                 # "reverse_shell_events": data.get("reverse_shell_events"),
-#                 # "application_usage": data.get("application_usage"),
-#                 # "process_events": data.get("process_events"),
-#                 # "failed_password_changes": data.get("failed_password_changes"),
-#                 # "users_failed_password_change": data.get("users_failed_password_change"),
-#                 # "command_executions": data.get("command_executions"),
-#                 # "hostname": data.get("hostname"),
-#                 "response_time": data.get("response_time"),
-#                 "io_wait_time": data.get("io_wait_time"),
-#                  "context_switches": data.get("context_switches"),
-#                 }
-
-#                 # logging.info(f"Sent metrics: {data}")
-#                 # print("\033[96m[Producer] Sent metrics:\n" + json.dumps(data, indent=4) + "\033[0m") 
-#                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")
-   
-#             except Exception as e:
-#                 logging.error(f"Kafka send error: {e}")
-#         time.sleep(5)
 def main():
     while True:
         data = collect_metrics()
@@ -363,36 +305,37 @@ def main():
                 
                 important_metrics = {
                     "timestamp": data.get("timestamp"),
-                    "cpu_usage": data.get("cpu_usage"),
-                    "memory_usage": data.get("memory_usage"),
-                    "startup_latency": data.get("startup_latency"),
-                    "disk_read_rate": data.get("disk_read_rate"),
-                    "disk_write_rate": data.get("disk_write_rate"),
-                    "network_bytes_sent": data.get("network_bytes_sent"),
-                    "network_bytes_recv": data.get("network_bytes_recv"),
-                    "username": data.get("username"),
-                    "system_temperature": data.get("system_temperature"),
-                    "avg_load": data.get("avg_load"),
-                    "response_time": data.get("response_time"),
-                    "io_wait_time": data.get("io_wait_time"),
-                    "context_switches": data.get("context_switches"),
-                    "command_executions": data.get("command_executions"),
-                    "new_users": data.get("new_users"),
-                    "successful_logins": data.get("successful_logins"),
-                    "failed_logins": data.get("failed_logins"),
-                    "failed_logins_by_user": data.get("failed_logins_by_user"),
-                    "failed_logins_by_ip": data.get("failed_logins_by_ip"),
-                    "failed_ssh_attempts": data.get("failed_ssh_attempts"),
-                    "failed_password_changes": data.get("failed_password_changes"),
-                    "account_lockouts": data.get("account_lockouts"),
-                    "locked_users": data.get("locked_users"),
+                    # "cpu_usage": data.get("cpu_usage"),
+                    # "memory_usage": data.get("memory_usage"),
+                    # "startup_latency": data.get("startup_latency"),
+                    # "disk_read_rate": data.get("disk_read_rate"),
+                    # "disk_write_rate": data.get("disk_write_rate"),
+                    # "network_bytes_sent": data.get("network_bytes_sent"),
+                    # "network_bytes_recv": data.get("network_bytes_recv"),
+                    # "username": data.get("username"),
+                    # "system_temperature": data.get("system_temperature"),
+                    # "avg_load": data.get("avg_load"),
+                    # "response_time": data.get("response_time"),
+                    # "io_wait_time": data.get("io_wait_time"),
+                    # "context_switches": data.get("context_switches"),
+                    # "command_executions": data.get("command_executions"),
+                    # "new_users": data.get("new_users"),
+                    # "successful_logins": data.get("successful_logins"),
+                    # "failed_logins": data.get("failed_logins"),
+                    # "failed_logins_by_user": data.get("failed_logins_by_user"),
+                    # "failed_logins_by_ip": data.get("failed_logins_by_ip"),
+                    # "failed_ssh_attempts": data.get("failed_ssh_attempts"),
+                    # "failed_password_changes": data.get("failed_password_changes"),
+                    # "account_lockouts": data.get("account_lockouts"),
+                    # "locked_users": data.get("locked_users"),
+                    # "application_usage":data.get("application_usage")
                 
                 }
                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")
    
             except Exception as e:
                 logging.error(f"Kafka send error: {e}")
-        time.sleep(5)
+        time.sleep(SCAN_INTERVAL)
 
 
 if __name__ == "__main__":

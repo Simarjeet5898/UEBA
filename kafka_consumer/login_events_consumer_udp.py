@@ -298,7 +298,6 @@ def detect_abnormal_login_logout(event, user_baseline):
 
 
 
-
 def detect_dormant_account(event):
     if event.get("event_type") != "login":
         return

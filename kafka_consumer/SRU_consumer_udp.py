@@ -389,13 +389,24 @@ def detect_anomalous_resource_usage(metrics):
 conn = psycopg2.connect(**DB_CONFIG)
 cur = conn.cursor()
 
+# cur.execute("""
+# CREATE TABLE IF NOT EXISTS executed_commands (
+#     id SERIAL PRIMARY KEY,
+#     timestamp TIMESTAMP,
+#     user_id TEXT,
+#     source TEXT,
+#     command TEXT
+# );
+# """)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS executed_commands (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP,
     user_id TEXT,
     source TEXT,
-    command TEXT
+    command TEXT,
+    mac_address TEXT,
+    ip_address TEXT
 );
 """)
 
@@ -573,15 +584,31 @@ def main(stop_event=None):
                 LOG.info("[CMD] user=%s base=%s", cmd.get("user_id"), cmd_base)
 
                 # 1. Always save command into executed_commands
+                # cur.execute(
+                #     "INSERT INTO executed_commands (timestamp, user_id, source, command) VALUES (%s, %s, %s, %s)",
+                #     (
+                #         cmd.get("timestamp"),
+                #         cmd.get("user_id"),
+                #         cmd.get("source"),
+                #         full_cmd
+                #     )
+                # )
                 cur.execute(
-                    "INSERT INTO executed_commands (timestamp, user_id, source, command) VALUES (%s, %s, %s, %s)",
+                    """
+                    INSERT INTO executed_commands
+                    (timestamp, user_id, source, command, mac_address, ip_address)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
                     (
                         cmd.get("timestamp"),
                         cmd.get("user_id"),
                         cmd.get("source"),
-                        full_cmd
+                        full_cmd,
+                        metrics.get("mac_address"),
+                        metrics.get("ip_addresses"),
                     )
                 )
+
                 
                 # 2. Fetch baseline for this user
                 baseline = get_command_baseline(cmd.get("user_id"))

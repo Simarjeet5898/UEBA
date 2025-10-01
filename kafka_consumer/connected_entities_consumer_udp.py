@@ -88,34 +88,71 @@ def ensure_table(conn):
     conn.commit()
     cur.close()
 
+# def insert_device_event(conn, data):
+#     cur = conn.cursor()
+#     insert_sql = """
+#         INSERT INTO connected_entities (
+#             username, timestamp, hostname, mac_address,
+#             vendor_id, product_id, vendor_name, product_name, serial_number,
+#             busnum, devnum, device_type, device_node, sys_name, driver,
+#             usb_version, speed, connection_status,session_start_time,session_duration_sec
+#         ) VALUES (
+#             %(username)s, %(timestamp)s, %(hostname)s, %(mac_address)s,
+#             %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
+#             %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
+#             %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
+#         );
+#     """
+#     # Handle timestamp conversion for postgres
+#     data['timestamp'] = data.get('timestamp', None)
+#     if data['timestamp'] and data['timestamp'].endswith('Z'):
+#         data['timestamp'] = data['timestamp'].replace('T', ' ').replace('Z', '')
+
+#     try:
+#         cur.execute(insert_sql, data)
+#         conn.commit()
+#     except Exception as e:
+#         LOG.error(f"Failed to insert: {e}\nData: {data}")
+#         conn.rollback()
+#     finally:
+#         cur.close()
 def insert_device_event(conn, data):
     cur = conn.cursor()
-    insert_sql = """
-        INSERT INTO connected_entities (
-            username, timestamp, hostname, mac_address,
-            vendor_id, product_id, vendor_name, product_name, serial_number,
-            busnum, devnum, device_type, device_node, sys_name, driver,
-            usb_version, speed, connection_status,session_start_time,session_duration_sec
-        ) VALUES (
-            %(username)s, %(timestamp)s, %(hostname)s, %(mac_address)s,
-            %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
-            %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
-            %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
-        );
-    """
-    # Handle timestamp conversion for postgres
-    data['timestamp'] = data.get('timestamp', None)
-    if data['timestamp'] and data['timestamp'].endswith('Z'):
-        data['timestamp'] = data['timestamp'].replace('T', ' ').replace('Z', '')
 
-    try:
+    if data["connection_status"] == "connected":
+        # Insert a new row for connection
+        insert_sql = """
+            INSERT INTO connected_entities (
+                username, timestamp, hostname, mac_address,
+                vendor_id, product_id, vendor_name, product_name, serial_number,
+                busnum, devnum, device_type, device_node, sys_name, driver,
+                usb_version, speed, connection_status, session_start_time, session_duration_sec
+            ) VALUES (
+                %(username)s, %(timestamp)s, %(hostname)s, %(mac_address)s,
+                %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
+                %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
+                %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
+            );
+        """
         cur.execute(insert_sql, data)
-        conn.commit()
-    except Exception as e:
-        LOG.error(f"Failed to insert: {e}\nData: {data}")
-        conn.rollback()
-    finally:
-        cur.close()
+
+    elif data["connection_status"] == "disconnected":
+        # Update existing row instead of inserting
+        update_sql = """
+            UPDATE connected_entities
+            SET connection_status = %(connection_status)s,
+                session_duration_sec = %(session_duration_sec)s
+            WHERE vendor_id = %(vendor_id)s
+              AND product_id = %(product_id)s
+              AND hostname = %(hostname)s
+              AND mac_address = %(mac_address)s
+              AND session_start_time = %(session_start_time)s;
+        """
+        cur.execute(update_sql, data)
+
+    conn.commit()
+    cur.close()
+
 
         
 # def main():

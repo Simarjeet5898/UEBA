@@ -49,7 +49,13 @@ with open(CONFIG_PATH, "r") as f:
 
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
-POLL_INTERVAL = 5   # seconds
+# POLL_INTERVAL = 5   # seconds
+
+# POLL_INTERVAL from config (default 5s)
+try:
+    POLL_INTERVAL = int(config.get("SCAN_INTERVAL", 5))
+except Exception:
+    POLL_INTERVAL = 5
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -65,12 +71,122 @@ USB_CLASSES = {
     "ff": "vendor specific"
 }
 
+# def classify_device(dev):
+#     cls = dev.attributes.get("bDeviceClass")
+#     if cls and cls.decode() != "00":
+#         return USB_CLASSES.get(cls.decode(), "unknown")
+#     cls = dev.attributes.get("bInterfaceClass")
+#     return USB_CLASSES.get(cls.decode(), "unknown") if cls else "unknown"
 def classify_device(dev):
-    cls = dev.attributes.get("bDeviceClass")
-    if cls and cls.decode() != "00":
-        return USB_CLASSES.get(cls.decode(), "unknown")
-    cls = dev.attributes.get("bInterfaceClass")
-    return USB_CLASSES.get(cls.decode(), "unknown") if cls else "unknown"
+    # helper to safely decode sysfs attributes
+    def _get(attr):
+        val = dev.attributes.get(attr)
+        return val.decode() if val else ""
+
+    # 1) Prefer device class; special-case hubs (0x09)
+    bdc = _get("bDeviceClass")
+    if bdc and bdc != "00":
+        if bdc == "09":
+            return "usb_hub"            # root/transaction hub class
+        return USB_CLASSES.get(bdc, "unknown")
+
+    # 2) Fall back to interface class; special-case hubs
+    bic = _get("bInterfaceClass")
+    if bic:
+        if bic == "09":
+            return "usb_hub"
+        return USB_CLASSES.get(bic, "unknown")
+
+    # 3) Vendor/Product specific handling (Linux Foundation root hubs)
+    vid = _get("idVendor")
+    pid = _get("idProduct")
+    if vid == "1d6b":                    # Linux Foundation
+        if pid in ("0001", "0002", "0003"):
+            return "usb_root_hub"        # USB 1.1/2.0/3.x root hubs
+        return "usb_controller"
+
+    # 4) Fallback based on driver
+    drv = getattr(dev, "driver", None)
+    if drv == "usb":
+        return "generic_usb"
+
+    return "unknown"
+
+# ─── Normalizers ───────────────────────────────────────────────
+
+def _is_empty(v):
+    return v in (None, "", "N/A", "n/a", "null", "NULL")
+
+def _describe_usb_root_hub(pid: str) -> str:
+    mapping = {
+        "0001": "USB 1.1 root hub",
+        "0002": "USB 2.0 root hub",
+        "0003": "USB 3.x root hub",
+    }
+    return mapping.get(pid, "USB root hub")
+
+def fill_defaults(meta: dict) -> dict:
+    """Replace vague N/A/empty with informative values per device_type."""
+    m = meta.copy()
+    dtype = (m.get("device_type") or "").lower()
+
+    # normalize common empties
+    for key in ("vendor_id", "product_id", "vendor_name", "product_name",
+                "serial_number", "device_node", "sys_name", "driver",
+                "usb_version", "speed", "busnum", "devnum"):
+        if _is_empty(m.get(key)):
+            m[key] = ""
+
+    if dtype in ("usb_hub", "usb_controller", "usb_root_hub"):
+        if _is_empty(m["vendor_id"]):   m["vendor_id"] = "1d6b"
+        if _is_empty(m["vendor_name"]): m["vendor_name"] = "Linux Foundation"
+        if _is_empty(m["product_name"]):
+            pid = m.get("product_id", "")
+            m["product_name"] = _describe_usb_root_hub(pid) if pid else "USB root hub"
+        if _is_empty(m["serial_number"]): m["serial_number"] = "not_exposed"
+
+    elif dtype == "bluetooth_adapter":
+        if _is_empty(m["vendor_name"]):  m["vendor_name"] = "Bluetooth Adapter"
+        if _is_empty(m["product_name"]): m["product_name"] = m.get("sys_name") or "Bluetooth Controller"
+        if _is_empty(m["vendor_id"]):    m["vendor_id"] = "not_exposed"
+        if _is_empty(m["product_id"]):   m["product_id"] = "not_exposed"
+        if _is_empty(m["serial_number"]):m["serial_number"] = "not_exposed"
+
+    elif dtype == "internal_input":
+        if _is_empty(m["vendor_name"]):  m["vendor_name"] = "Integrated Device"
+        if _is_empty(m["product_name"]): m["product_name"] = "Built-in Input"
+        if _is_empty(m["vendor_id"]):    m["vendor_id"] = "not_applicable"
+        if _is_empty(m["product_id"]):   m["product_id"] = "not_applicable"
+        if _is_empty(m["serial_number"]):m["serial_number"] = "not_exposed"
+
+    elif dtype == "wifi_adapter":
+        if _is_empty(m["vendor_name"]):  m["vendor_name"] = "Wi-Fi Adapter"
+        if _is_empty(m["product_name"]): m["product_name"] = m.get("product_name") or "Wireless NIC"
+        if _is_empty(m["vendor_id"]):    m["vendor_id"] = "not_exposed"
+        if _is_empty(m["product_id"]):   m["product_id"] = "not_exposed"
+        if _is_empty(m["serial_number"]):m["serial_number"] = "not_exposed"
+
+    else:
+        # generic fallback
+        for k in ("vendor_id", "product_id", "serial_number"):
+            if _is_empty(m[k]): m[k] = "not_exposed"
+        if _is_empty(m["vendor_name"]):  m["vendor_name"] = "Unknown Vendor"
+        if _is_empty(m["product_name"]): m["product_name"] = "Unknown Device"
+
+    # ensure presentation fields not blank
+    for k, default in (
+        ("device_node", "not_exposed"),
+        ("sys_name", "not_exposed"),
+        ("driver", "not_exposed"),
+        ("usb_version", "not_exposed"),
+        ("speed", "not_exposed"),
+        ("busnum", "not_exposed"),
+        ("devnum", "not_exposed"),
+    ):
+        if _is_empty(m[k]):
+            m[k] = default
+
+    return m
 
 def scan_devices():
     ctx = pyudev.Context()
@@ -120,22 +236,54 @@ def scan_devices():
 
 # ─── Additional Scanners ────────────────────────────────────────
 
+# def scan_wifi_adapters():
+#     try:
+#         result = subprocess.run(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"], capture_output=True, text=True)
+#         adapters = []
+#         for line in result.stdout.strip().split('\n'):
+#             device, dev_type, state = line.strip().split(':')
+#             if dev_type == "wifi":
+#                 adapters.append({
+#                     "device_type": "wifi_adapter",
+#                     "product_name": device,
+#                     "connection_status": state
+#                 })
+#         return adapters
+#     except Exception as e:
+#         print(f"[ERROR] Wi-Fi adapter scan failed: {e}")
+#         return []
 def scan_wifi_adapters():
     try:
-        result = subprocess.run(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"], capture_output=True, text=True)
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device"],
+            capture_output=True, text=True
+        )
         adapters = []
-        for line in result.stdout.strip().split('\n'):
-            device, dev_type, state = line.strip().split(':')
-            if dev_type == "wifi":
-                adapters.append({
-                    "device_type": "wifi_adapter",
-                    "product_name": device,
-                    "connection_status": state
-                })
+        for raw in result.stdout.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            # Some lines can contain extra ':' in STATE; cap splits at 2
+            parts = line.split(":", 2)
+            if len(parts) < 3:
+                continue
+            device, dev_type, state = parts[0], parts[1], parts[2]
+            if dev_type != "wifi":
+                continue
+
+            # Normalize state → connected/disconnected
+            norm_state = "connected" if state.startswith("connected") else "disconnected"
+
+            adapters.append({
+                "device_type": "wifi_adapter",
+                "product_name": device,
+                "connection_status": norm_state
+            })
         return adapters
     except Exception as e:
         print(f"[ERROR] Wi-Fi adapter scan failed: {e}")
         return []
+
 
 
 def scan_bluetooth_adapters():
@@ -216,29 +364,61 @@ def scan_internal_input_devices():
 
 # ─── Event Dispatcher ───────────────────────────────────────────
 
+# def send_event(meta, status, session_start=None, session_duration=None):
+#     payload = meta.copy()
+#     payload.update({
+#         "topic": "device-events",
+#         "username": username,
+#         "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+#         "hostname": hostname,
+#         "mac_address": mac_address,
+#         "vendor_id": meta.get("vendor_id", "N/A"),
+#         "product_id": meta.get("product_id", "N/A"),
+#         "vendor_name": meta.get("vendor_name", "N/A"),
+#         "serial_number": meta.get("serial_number", "N/A"),
+#         "busnum": meta.get("busnum", "N/A"),
+#         "devnum": meta.get("devnum", "N/A"),
+#         "device_node": meta.get("device_node", "N/A"),
+#         "sys_name": meta.get("sys_name", "N/A"),
+#         "driver": meta.get("driver", "N/A"),
+#         "usb_version": meta.get("usb_version", "N/A"),
+#         "speed": meta.get("speed", "N/A"),
+#         "connection_status": status,
+#         "session_start_time": session_start,
+#         "session_duration_sec": session_duration if session_duration is not None else None
+#     })
+#     print(f"devices_details: {payload}")
+#     sock.sendto(json.dumps(payload).encode("utf-8"), (UDP_IP, UDP_PORT))
+
 def send_event(meta, status, session_start=None, session_duration=None):
-    payload = meta.copy()
-    payload.update({
+    meta_filled = fill_defaults(meta)
+
+    payload = {
         "topic": "device-events",
         "username": username,
         "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         "hostname": hostname,
         "mac_address": mac_address,
-        "vendor_id": meta.get("vendor_id", "N/A"),
-        "product_id": meta.get("product_id", "N/A"),
-        "vendor_name": meta.get("vendor_name", "N/A"),
-        "serial_number": meta.get("serial_number", "N/A"),
-        "busnum": meta.get("busnum", "N/A"),
-        "devnum": meta.get("devnum", "N/A"),
-        "device_node": meta.get("device_node", "N/A"),
-        "sys_name": meta.get("sys_name", "N/A"),
-        "driver": meta.get("driver", "N/A"),
-        "usb_version": meta.get("usb_version", "N/A"),
-        "speed": meta.get("speed", "N/A"),
-        "connection_status": status,
-        "session_start_time": session_start,
+
+        "vendor_id":        meta_filled["vendor_id"],
+        "product_id":       meta_filled["product_id"],
+        "vendor_name":      meta_filled["vendor_name"],
+        "product_name":     meta_filled.get("product_name"),
+        "serial_number":    meta_filled["serial_number"],
+        "busnum":           meta_filled["busnum"],
+        "devnum":           meta_filled["devnum"],
+        "device_type":      meta_filled.get("device_type"),
+        "device_node":      meta_filled["device_node"],
+        "sys_name":         meta_filled["sys_name"],
+        "driver":           meta_filled["driver"],
+        "usb_version":      meta_filled["usb_version"],
+        "speed":            meta_filled["speed"],
+
+        "connection_status":    status,
+        "session_start_time":   session_start,
         "session_duration_sec": session_duration if session_duration is not None else None
-    })
+    }
+
     print(f"devices_details: {payload}")
     sock.sendto(json.dumps(payload).encode("utf-8"), (UDP_IP, UDP_PORT))
 

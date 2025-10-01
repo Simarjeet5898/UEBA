@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# POST API: http://10.229.10.40:8081/ransomware/detection
 # Content-Type: application/json
 # Required JSON fields: process_name (str), indicator (str)
 
@@ -42,7 +41,6 @@ SIEM_URL = (
 
 app = FastAPI(title="UEBA Phising Detection API")
 
-# print(f"[LOAD] ransomware_api from: {__file__}", flush=True)
 print(f"[LOAD] PHISHING_api from: {__file__}", flush=True)
 print(f"[LOAD] SIEM_URL: {SIEM_URL}", flush=True)
 
@@ -235,7 +233,7 @@ def send_dummy_to_siem():
         "severity": str(DEFAULT_SEV),
         "eventReason": "Phising test event",
         "attackerIp": "127.0.0.1",
-        "attackerInfo": "TestModule",
+        "attackerInfo": "N/A",
         "deviceHostname": "host",
         "deviceUsername": "user",
         "serviceName": "process",
@@ -244,11 +242,11 @@ def send_dummy_to_siem():
         "destinationIp": "N/A",
         "deviceMacId": "00:11:22:33:44:55",
         "deviceIp": "127.0.0.1",
-        "logText": json.dumps({"notes": "dummy direct send"}),
+        "logText": json.dumps({"notes": "UEBA TO SIEM SEND"}),
         "url": SIEM_URL,
     }
 
-    print(">>> Sending dummy message to SIEM...", flush=True)
+    print(">>> Sending message to SIEM...", flush=True)
     ok = _siem_send({"MESSAGE": dummy_msg})
     if ok:
         print(">>> Message sent OK", flush=True)
@@ -258,10 +256,7 @@ def send_dummy_to_siem():
 # --------------------------------------------------------------------
 # API Routes
 # --------------------------------------------------------------------
-# @app.post("/ransomware/detection")
-# def ransomware_detection(sig: AttackInput):
-#     anomaly_id = _insert_row(sig)
-#     return {"ok": True, "anomaly_id": anomaly_id}
+
 @app.post("/phishing/detection")
 def phishing_detection(sig: AttackInput):
     anomaly_id = _insert_row(sig)
@@ -273,8 +268,8 @@ def phishing_detection(sig: AttackInput):
 def main(stop_event=None):
     import uvicorn, threading, time
 
-    host = CONFIG["ransomware_api"]["host"]
-    port = int(CONFIG["ransomware_api"]["port"])
+    host = CONFIG["attack_api"]["host"]
+    port = int(CONFIG["attack_api"]["port"])
 
     server = uvicorn.Server(
         uvicorn.Config(app, host=host, port=port, reload=False, log_config=None)
@@ -291,14 +286,14 @@ def main(stop_event=None):
         t.join(timeout=5)
 
 if __name__ == "__main__":
-    # send_dummy_to_siem()
-    main()
+    send_dummy_to_siem()
+    # main()
 
 # To test locally: open http://127.0.0.1:8081/docs
 # in this in particular api fill the information and send.
 
 # POST /phishing/detection
-#http://10.229.10.40:8081/phishing/detection
+# http://10.229.10.40:8081/phishing/detection
 # Content-Type: application/json
 
 # {
