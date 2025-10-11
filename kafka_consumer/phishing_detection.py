@@ -286,8 +286,8 @@ def main(stop_event=None):
         t.join(timeout=5)
 
 if __name__ == "__main__":
-    send_dummy_to_siem()
-    # main()
+    # send_dummy_to_siem()
+    main()
 
 # To test locally: open http://127.0.0.1:8081/docs
 # in this in particular api fill the information and send.

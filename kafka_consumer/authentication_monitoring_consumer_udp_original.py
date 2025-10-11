@@ -9,7 +9,6 @@ from collections import Counter
 import ipaddress
 from collections import defaultdict
 import psycopg2
-from helper import store_raw_analysis
 import time
 from collections import deque
 import socket 
@@ -852,17 +851,6 @@ def main(stop_event=None):
                         "extra_data": {}
                     })
 
-                    store_raw_analysis(
-                        {
-                            "event_id": metrics.get("event_id", "N/A"),
-                            "username": u,
-                            "timestamp": metrics.get("timestamp"),
-                            "event_type": "USER_CREATION",
-                            "event_subtype": None
-                        },
-                        analysis_reason="New user account created",
-                        risk_score=0.4
-                    )
             
             # ------- Successful login events (SSH/others) ---------
             if metrics.get("successful_logins"):

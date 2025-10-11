@@ -12,7 +12,7 @@ with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
 UDP_IP = config["udp"]["server_ip"]
-UDP_PORT = 6008   # 👈 assign a dedicated port for heartbeat
+UDP_PORT = 6008   # 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -851,8 +851,6 @@ def map_common_fields(raw_anomaly):
     return base
 
 
-
-
 def is_duplicate_anomaly(message):
     """Check if this anomaly is a duplicate based on key fields."""
     key = (
@@ -872,47 +870,47 @@ def is_duplicate_anomaly(message):
     return False
 
 
-def ensure_raw_analysis_log_exists():
-    connection = psycopg2.connect(**DB_CONFIG)
-    cursor = connection.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS raw_analysis_log (
-            id SERIAL PRIMARY KEY,
-            event_id VARCHAR(255),
-            user_id VARCHAR(255),
-            timestamp TIMESTAMP,
-            event_type VARCHAR(255),
-            event_subtype VARCHAR(255),
-            analysis_reason TEXT,
-            risk_score FLOAT,
-            review_status VARCHAR(50) DEFAULT 'pending',
-            reviewer_comments TEXT
-        );
-    """)
-    connection.commit()
-    cursor.close()
-    connection.close()
+# def ensure_raw_analysis_log_exists():
+#     connection = psycopg2.connect(**DB_CONFIG)
+#     cursor = connection.cursor()
+#     cursor.execute("""
+#         CREATE TABLE IF NOT EXISTS raw_analysis_log (
+#             id SERIAL PRIMARY KEY,
+#             event_id VARCHAR(255),
+#             user_id VARCHAR(255),
+#             timestamp TIMESTAMP,
+#             event_type VARCHAR(255),
+#             event_subtype VARCHAR(255),
+#             analysis_reason TEXT,
+#             risk_score FLOAT,
+#             review_status VARCHAR(50) DEFAULT 'pending',
+#             reviewer_comments TEXT
+#         );
+#     """)
+#     connection.commit()
+#     cursor.close()
+#     connection.close()
 
-def store_raw_analysis(event, analysis_reason, risk_score):
-    connection = psycopg2.connect(**DB_CONFIG)
-    cursor = connection.cursor()
-    cursor.execute("""
-        INSERT INTO raw_analysis_log (
-            event_id, user_id, timestamp, event_type, event_subtype, analysis_reason, risk_score
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """, (
-        event.get("event_id", "N/A"),
-        event.get("username", "N/A"),
-        event.get("timestamp", datetime.now()),
-        event.get("event_type", "N/A"),
-        event.get("event_subtype", "N/A"),
-        analysis_reason,
-        risk_score
-    ))
-    connection.commit()
-    cursor.close()
-    connection.close()
-    print("Stored authentication event to Authentication Table.")
+# def store_raw_analysis(event, analysis_reason, risk_score):
+#     connection = psycopg2.connect(**DB_CONFIG)
+#     cursor = connection.cursor()
+#     cursor.execute("""
+#         INSERT INTO raw_analysis_log (
+#             event_id, user_id, timestamp, event_type, event_subtype, analysis_reason, risk_score
+#         ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+#     """, (
+#         event.get("event_id", "N/A"),
+#         event.get("username", "N/A"),
+#         event.get("timestamp", datetime.now()),
+#         event.get("event_type", "N/A"),
+#         event.get("event_subtype", "N/A"),
+#         analysis_reason,
+#         risk_score
+#     ))
+#     connection.commit()
+#     cursor.close()
+#     connection.close()
+#     print("Stored authentication event to Authentication Table.")
 
 
 def store_anomaly_to_database_and_siem(alert_json):

@@ -427,7 +427,7 @@ def main(stop_event=None):
     print("\033[1;32m  !!!!!!!!!!!Login Events consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
     LOG.info("!!!!!!!!!!! Login Events consumer started (UDP) !!!!!!!!!!!")
     
-    ensure_raw_analysis_log_exists()
+    # ensure_raw_analysis_log_exists()
     try:
         # while True:
         while not (stop_event and stop_event.is_set()):

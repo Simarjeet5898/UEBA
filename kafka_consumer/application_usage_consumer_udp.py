@@ -98,28 +98,6 @@ DB_CONFIG = {
 
 # ─── Ensure application_usage table exists ───
 
-
-# def ensure_table(conn):
-#     cur = conn.cursor()
-#     cur.execute("""
-#         CREATE TABLE IF NOT EXISTS application_usage (
-#             id SERIAL PRIMARY KEY,
-#             username TEXT,
-#             process_name TEXT,
-#             pid INTEGER,
-#             ppid INTEGER,
-#             status TEXT,
-#             cpu_percent REAL,
-#             memory_percent REAL,
-#             start_time TIMESTAMP,
-#             end_time TIMESTAMP,
-#             duration_secs REAL,
-#             timestamp TIMESTAMP
-#         );
-#     """)
-#     conn.commit()
-#     cur.close()
-
 def ensure_table(conn):
     cur = conn.cursor()
     cur.execute("""
@@ -174,77 +152,6 @@ def create_latency_monitoring_table(conn):
     conn.commit()
     cur.close()
 
-
-
-# def insert_usage_record(conn, record):
-#     cur = conn.cursor()
-
-#     # Ensure optional fields are set to None if missing
-#     for key in ["end_time", "duration_secs"]:
-#         record.setdefault(key, None)
-
-#     try:
-#         event = record.get("event")
-
-#         if event == "launch":
-#             # Insert new row for this process instance
-#             insert_sql = """
-#                 INSERT INTO application_usage (
-#                     username, process_name, pid, ppid,
-#                     status, cpu_percent, memory_percent,
-#                     start_time, end_time, duration_secs, timestamp
-#                 ) VALUES (
-#                     %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
-#                     %(status)s, %(cpu_percent)s, %(memory_percent)s,
-#                     %(start_time)s, %(end_time)s, %(duration_secs)s, %(timestamp)s
-#                 );
-#             """
-#             cur.execute(insert_sql, record)
-
-#         elif event == "update":
-#             # Update live metrics for running process
-#             update_sql = """
-#                 UPDATE application_usage
-#                 SET cpu_percent   = %(cpu_percent)s,
-#                     memory_percent = %(memory_percent)s,
-#                     status        = %(status)s,
-#                     timestamp     = %(timestamp)s
-#                 WHERE pid = %(pid)s AND start_time = %(start_time)s;
-#             """
-#             cur.execute(update_sql, record)
-
-#         elif event == "exit":
-#             # Finalize row when process exits
-#             update_sql = """
-#                 UPDATE application_usage
-#                 SET end_time     = %(end_time)s,
-#                     duration_secs = %(duration_secs)s,
-#                     status        = 'inactive',
-#                     timestamp     = %(timestamp)s
-#                 WHERE pid = %(pid)s AND start_time = %(start_time)s;
-#             """
-#             cur.execute(update_sql, record)
-
-#             # Fallback: if no row existed (missed launch), insert it
-#             if cur.rowcount == 0:
-#                 insert_sql = """
-#                     INSERT INTO application_usage (
-#                         username, process_name, pid, ppid,
-#                         status, cpu_percent, memory_percent,
-#                         start_time, end_time, duration_secs, timestamp
-#                     ) VALUES (
-#                         %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
-#                         %(status)s, %(cpu_percent)s, %(memory_percent)s,
-#                         %(start_time)s, %(end_time)s, %(duration_secs)s, %(timestamp)s
-#                     );
-#                 """
-#                 cur.execute(insert_sql, record)
-
-#         conn.commit()
-
-#     except Exception as e:
-#         logging.error(f"Failed to insert/update record: {e}\nData: {record}")
-#         conn.rollback()
 
 def insert_usage_record(conn, record):
     cur = conn.cursor()
