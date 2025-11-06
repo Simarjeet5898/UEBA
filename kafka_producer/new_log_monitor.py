@@ -2747,22 +2747,158 @@ def track_application_usage(poll_interval=0.25):
 
 def track_process_executions(poll_interval=5):
     """
-    Generator that yields two kinds of events:
-    1. process_created — immediately on detection
-    2. process_exited — with end time and duration
-
-    Only logs user-triggered processes, suppresses repetitive background events.
+    Generator that yields detailed process lifecycle events:
+    - process_created   → entry/initiation
+    - process_exited    → normal completion
+    - process_deleted   → forcibly killed / terminated externally
+    - process_restarted → same name/cmdline restarted soon after exit
+    - process_aborted   → abnormal end (zombie/crash)
     """
+    import psutil, time
+    from datetime import datetime
+
+    # ─── Initialize ───
     seen_pids = set(psutil.pids())
     process_start_times = {}
     recent_signatures = {}
-    signature_ttl = 15  # seconds
+    last_exit = {}
+    reported_aborts = set()   # to avoid duplicate zombie detections
+    signature_ttl = 2         # seconds to prevent duplicate detection
+    restart_window = 30       # seconds allowed to count as restart
 
+    # print("\033[1;33m[DEBUG] Process tracker started. Monitoring process lifecycle events...\033[0m")
+
+    # ─── Register already-running processes so their deletion will be detected ───
+    for pid in seen_pids:
+        try:
+            proc = psutil.Process(pid)
+            with proc.oneshot():
+                parent_pid = proc.ppid()
+                parent_name = psutil.Process(parent_pid).name() if parent_pid in psutil.pids() else "unknown"
+                terminal = proc.terminal()
+                start_time = proc.create_time()
+
+                info = {
+                    "event": "process_created",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "pid": pid,
+                    "ppid": parent_pid,
+                    "process_name": proc.name(),
+                    "parent_name": parent_name,
+                    "user": proc.username(),
+                    "cmdline": proc.cmdline(),
+                    "start_time": datetime.fromtimestamp(start_time).isoformat(),
+                    "status": proc.status(),
+                    "has_terminal": terminal is not None,
+                    "is_interactive": terminal is not None,
+                    "terminal": terminal,
+                    "is_likely_user_process": (
+                        terminal is not None or
+                        parent_name in {"bash", "zsh", "gnome-terminal", "xfce4-terminal", "konsole", "code"}
+                    ),
+                    "likely_background_loop": False,
+                }
+
+                if info["is_likely_user_process"] and info["process_name"] not in {
+                    "sh", "sleep", "tracker-extract-3", "cpuUsage.sh", "snap"
+                }:
+                    process_start_times[pid] = (start_time, info.copy())
+
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+
+    # ─── Continuous monitoring loop ───
     while True:
         now = time.time()
         current_pids = set(psutil.pids())
-        new_pids = current_pids - seen_pids
 
+        # ─────────────────────────────────────────────
+        # 🔴 Sweep for zombie/dead (aborted) processes globally
+        # ─────────────────────────────────────────────
+        for p in psutil.process_iter(['pid', 'name', 'username', 'ppid', 'status', 'cmdline']):
+            try:
+                if p.info['status'] in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD) and p.info['pid'] not in reported_aborts:
+                    event_data = {
+                        "event": "process_aborted",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "pid": p.info['pid'],
+                        "end_time": datetime.utcnow().isoformat(),
+                        "execution_duration": None,
+                        "start_time": None,
+                        "process_name": p.info.get('name'),
+                        "user": p.info.get('username'),
+                        "cmdline": p.info.get('cmdline') or [],
+                        "parent_name": psutil.Process(p.info['ppid']).name()
+                        if p.info['ppid'] in psutil.pids()
+                        else "unknown",
+                        "ppid": p.info['ppid'],
+                        "is_interactive": False,
+                        "has_terminal": False,
+                        "is_likely_user_process": False,
+                        "likely_background_loop": False,
+                    }
+                    print(f"\033[1;31m[DEBUG] Zombie/Dead detected: process_aborted → {event_data['process_name']} (PID={event_data['pid']})\033[0m")
+                    reported_aborts.add(p.info['pid'])
+                    yield event_data
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+        # ─────────────────────────────────────────────
+        # 1️⃣ Detect exited or terminated processes
+        # ─────────────────────────────────────────────
+        ended_pids = []
+        for pid, (start_time, info) in list(process_start_times.items()):
+            if not psutil.pid_exists(pid):
+                end_time = time.time()
+                runtime = round(end_time - start_time, 3)
+
+                try:
+                    proc = psutil.Process(pid)
+                    proc_status = proc.status()
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    proc_status = None
+
+                # classify exit type
+                if proc_status in (psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD):
+                    event_type = "process_aborted"
+                elif proc_status is None:
+                    event_type = "process_exited" if runtime < (poll_interval * 3) else "process_deleted"
+                elif proc_status == "terminated":
+                    event_type = "process_deleted"
+                else:
+                    event_type = "process_exited"
+
+                event_data = {
+                    "event": event_type,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "pid": pid,
+                    "end_time": datetime.fromtimestamp(end_time).isoformat(),
+                    "execution_duration": runtime,
+                    "start_time": info["start_time"],
+                    "process_name": info["process_name"],
+                    "user": info["user"],
+                    "cmdline": info["cmdline"],
+                    "parent_name": info["parent_name"],
+                    "ppid": info["ppid"],
+                    "is_interactive": info["is_interactive"],
+                    "has_terminal": info["has_terminal"],
+                    "is_likely_user_process": info["is_likely_user_process"],
+                    "likely_background_loop": info["likely_background_loop"],
+                }
+
+                print(f"\033[1;31m[DEBUG] Process ended: {event_type} → {info['process_name']} (PID={pid})\033[0m")
+                yield event_data
+
+                last_exit[info["process_name"]] = (end_time, pid)
+                ended_pids.append(pid)
+
+        for pid in ended_pids:
+            process_start_times.pop(pid, None)
+
+        # ─────────────────────────────────────────────
+        # 2️⃣ Detect newly created processes
+        # ─────────────────────────────────────────────
+        new_pids = current_pids - seen_pids
         for pid in new_pids:
             try:
                 proc = psutil.Process(pid)
@@ -2773,12 +2909,11 @@ def track_process_executions(poll_interval=5):
                     grandparent_name = psutil.Process(grandparent_pid).name() if grandparent_pid and grandparent_pid in psutil.pids() else "unknown"
                     terminal = proc.terminal()
                     start_time = proc.create_time()
-
                     cmdline = proc.cmdline()
-                    cmd_string = ' '.join(cmdline)
+                    cmd_string = " ".join(cmdline)
                     signature = (proc.name(), cmd_string)
 
-                    # Deduplicate known noisy background processes
+                    # prevent rapid duplicate detection
                     last_seen = recent_signatures.get(signature)
                     if last_seen and now - last_seen < signature_ttl:
                         continue
@@ -2800,67 +2935,62 @@ def track_process_executions(poll_interval=5):
                         "terminal": terminal,
                         "is_likely_user_process": (
                             terminal is not None or
-                            parent_name in {"bash", "zsh", "gnome-terminal", "xfce4-terminal", "konsole","code"}
+                            parent_name in {"bash", "zsh", "gnome-terminal", "xfce4-terminal", "konsole", "code"}
                         ),
                         "likely_background_loop": (
                             "cpuUsage.sh" in proc.name() and
                             parent_name == "sh" and
                             "code" in grandparent_name
-                        )
+                        ),
                     }
-                    #print(f"[DEBUG] NEW PID: {pid}, NAME: {info['process_name']}, PARENT: {parent_name}, TERMINAL: {terminal}")
 
-                    #  Only emit user-triggered events
                     if not info["is_likely_user_process"]:
                         continue
-
-                    #  Suppress common noise
-                    if info["process_name"] in {"sh", "sleep", "tracker-extract-3", "cpuUsage.sh"}:
+                    if info["process_name"] in {
+                        "sh", "sleep", "tracker-extract-3", "cpuUsage.sh", "snap"
+                    }:
                         continue
+
+                    # ─── Restart detection (after exits processed) ───
+                    is_restart = False
+                    print(f"[DEBUG] Restart check: {info['process_name']} seen before? {'YES' if info['process_name'] in last_exit else 'NO'}")
+                    if info["process_name"] in last_exit:
+                        prev_exit_time, prev_pid = last_exit[info["process_name"]]
+                        delta = round(now - prev_exit_time, 3)
+                        print(f"[DEBUG] Restart timing delta={delta}s (window={restart_window}s)")
+                        if delta <= restart_window:
+                            restart_event = {
+                                "event": "process_restarted",
+                                "timestamp": datetime.utcnow().isoformat(),
+                                "previous_pid": prev_pid,
+                                "new_pid": pid,
+                                "restart_delay": delta,
+                                "process_name": info["process_name"],
+                                "cmdline": cmdline,
+                                "user": info["user"],
+                                "parent_name": parent_name,
+                            }
+                            print(f"\033[1;36m[DEBUG] Restart detected: {restart_event}\033[0m")
+                            yield restart_event
+                            is_restart = True
 
                     process_start_times[pid] = (start_time, info.copy())
                     seen_pids.add(pid)
-                    yield info
+                    if not is_restart:
+                        print(f"\033[1;32m[DEBUG] Process created: {info['process_name']} (PID={pid})\033[0m")
+                        yield info
 
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-        # Check for exited processes
-        ended_pids = []
-        for pid, (start_time, info) in process_start_times.items():
-            if not psutil.pid_exists(pid):
-                end_time = time.time()
-                yield {
-                    "event": "process_exited",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "pid": pid,
-                    "end_time": datetime.fromtimestamp(end_time).isoformat(),
-                    "execution_duration": round(end_time - start_time, 3),
-                    "start_time": info["start_time"],
-                    "process_name": info["process_name"],
-                    "user": info["user"],
-                    "cmdline": info["cmdline"],
-                    "parent_name": info["parent_name"],
-                    "ppid": info["ppid"],
-                    "is_interactive": info["is_interactive"],
-                    "has_terminal": info["has_terminal"],
-                    "is_likely_user_process": info["is_likely_user_process"],
-                    "likely_background_loop": info["likely_background_loop"]
-                }
-                ended_pids.append(pid)
-
-        for pid in ended_pids:
-            process_start_times.pop(pid, None)
-
+        # ─────────────────────────────────────────────
+        # 3️⃣ Housekeeping
+        # ─────────────────────────────────────────────
         recent_signatures = {
-            sig: ts for sig, ts in recent_signatures.items()
-            if now - ts < signature_ttl
+            sig: ts for sig, ts in recent_signatures.items() if now - ts < signature_ttl
         }
-
         seen_pids = current_pids
         time.sleep(poll_interval)
-
-
 
 _active_processes = {}
 def is_user_application(proc):
@@ -2951,3 +3081,110 @@ def get_per_process_latency_sessions(poll_interval=5):
             yield session_data
 
         time.sleep(poll_interval)
+
+
+##########################Network Status#######################
+# -----------------------------------------------------------------------------
+# collect_network_status()
+# -----------------------------------------------------------------------------
+# Captures real-time network interface and connectivity status.
+# Monitors all active interfaces for:
+#   - Interface state changes (UP/DOWN)
+#   - IP and MAC address updates
+#   - Gateway detection and reachability
+#   - Connectivity health via ping test (latency, loss)
+#   - Traffic counters (bytes sent/received)
+#
+# Returns a structured list of JSON-ready dictionaries containing
+# per-interface network status snapshots for downstream UEBA processing.
+# -----------------------------------------------------------------------------
+
+
+def collect_network_status():
+    """
+    Collects comprehensive network status messages:
+    - Interface up/down state
+    - IP/MAC changes
+    - Gateway and DNS info
+    - Connectivity/latency health
+    - Basic traffic counters
+
+    Returns:
+        dict: structured status report
+    """
+    def _get_default_gateway():
+        try:
+            gws = psutil.net_if_stats()
+            routes = psutil.net_if_addrs()
+            # fallback via `ip route`
+            result = subprocess.run(["ip", "route"], capture_output=True, text=True)
+            for line in result.stdout.splitlines():
+                if line.startswith("default via"):
+                    parts = line.split()
+                    return parts[2], parts[-1] if len(parts) >= 5 else None
+        except Exception:
+            pass
+        return None, None
+
+    def _ping_test(target="8.8.8.8", count=1, timeout=1):
+        try:
+            result = subprocess.run(
+                ["ping", "-c", str(count), "-W", str(timeout), target],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            if result.returncode == 0:
+                # Extract latency (avg) from ping output
+                for line in result.stdout.split("\n"):
+                    if "avg" in line:
+                        latency = line.split("/")[-3]
+                        return True, float(latency)
+                return True, None
+            return False, None
+        except Exception:
+            return False, None
+
+    timestamp = datetime.utcnow().isoformat()
+    interfaces = psutil.net_if_stats()
+    addrs = psutil.net_if_addrs()
+    gw_ip, gw_iface = _get_default_gateway()
+    ping_ok, latency = _ping_test()
+
+    status_messages = []
+
+    for iface, stats in interfaces.items():
+        iface_info = {
+            "topic": "network-status",
+            "timestamp": timestamp,
+            "interface": iface,
+            "is_up": stats.isup,
+            "speed_mbps": stats.speed,
+            "mtu": stats.mtu,
+            "duplex": stats.duplex,
+            "bytes_sent": 0,
+            "bytes_recv": 0,
+            "ip_address": None,
+            "mac_address": None,
+            "gateway_ip": gw_ip if iface == gw_iface else None,
+            "ping_ok": ping_ok,
+            "latency_ms": latency if ping_ok else None,
+            "event": "NETWORK_INTERFACE_UP" if stats.isup else "NETWORK_INTERFACE_DOWN"
+        }
+
+        # Fill addresses
+        for addr in addrs.get(iface, []):
+            if addr.family == socket.AF_INET:
+                iface_info["ip_address"] = addr.address
+            elif addr.family == psutil.AF_LINK:
+                iface_info["mac_address"] = addr.address
+
+        # Traffic counters
+        io = psutil.net_io_counters(pernic=True).get(iface)
+        if io:
+            iface_info["bytes_sent"] = io.bytes_sent
+            iface_info["bytes_recv"] = io.bytes_recv
+
+        status_messages.append(iface_info)
+
+    return status_messages

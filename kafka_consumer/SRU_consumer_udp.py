@@ -389,15 +389,6 @@ def detect_anomalous_resource_usage(metrics):
 conn = psycopg2.connect(**DB_CONFIG)
 cur = conn.cursor()
 
-# cur.execute("""
-# CREATE TABLE IF NOT EXISTS executed_commands (
-#     id SERIAL PRIMARY KEY,
-#     timestamp TIMESTAMP,
-#     user_id TEXT,
-#     source TEXT,
-#     command TEXT
-# );
-# """)
 cur.execute("""
 CREATE TABLE IF NOT EXISTS executed_commands (
     id SERIAL PRIMARY KEY,
@@ -430,6 +421,28 @@ CREATE TABLE IF NOT EXISTS resource_usage (
     top_process_pid INTEGER,
     top_process_name VARCHAR(255),
     top_process_rss BIGINT
+);
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS network_status (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL,
+    username VARCHAR(100),
+    mac_address VARCHAR(50),
+    interface_name VARCHAR(100),
+    connection_status VARCHAR(50),
+    latency_ms FLOAT,
+    ip_address VARCHAR(100),        
+    ping_ok BOOLEAN,
+    mtu INTEGER,
+    duplex INTEGER,
+    bytes_sent BIGINT,
+    bytes_recv BIGINT,
+    gateway_ip VARCHAR(100),
+    is_up BOOLEAN,
+    speed_mbps INTEGER,
+    snapshot_date DATE DEFAULT CURRENT_DATE
 );
 """)
 
@@ -551,6 +564,7 @@ def detect_command_deviation(user_id, command, baseline):
     return None
 
 
+
 def main(stop_event=None):
     print("\033[1;92m!!!!!!!!! SRU Consumer Running (UDP) !!!!!!\033[0m")
     LOG.info("!!!!!!!!! SRU Consumer Running (UDP) !!!!!!")
@@ -583,16 +597,6 @@ def main(stop_event=None):
                 print(f"User: {cmd['user_id']}, Time: {cmd['timestamp']}, Command: {full_cmd}")
                 LOG.info("[CMD] user=%s base=%s", cmd.get("user_id"), cmd_base)
 
-                # 1. Always save command into executed_commands
-                # cur.execute(
-                #     "INSERT INTO executed_commands (timestamp, user_id, source, command) VALUES (%s, %s, %s, %s)",
-                #     (
-                #         cmd.get("timestamp"),
-                #         cmd.get("user_id"),
-                #         cmd.get("source"),
-                #         full_cmd
-                #     )
-                # )
                 cur.execute(
                     """
                     INSERT INTO executed_commands
@@ -609,11 +613,7 @@ def main(stop_event=None):
                     )
                 )
 
-                
-                # 2. Fetch baseline for this user
                 baseline = get_command_baseline(cmd.get("user_id"))
-
-                # 3. Detect deviation or suspicious command
                 anomaly = detect_command_deviation(cmd.get("user_id"), full_cmd, baseline)
                 if anomaly:
                     anomaly.update({
@@ -632,7 +632,6 @@ def main(stop_event=None):
                     siem_packet = build_command_exe_moni_packet(anomaly)
                     store_siem_ready_packet(asdict(siem_packet))
 
-                # 4. Repeated Command Execution (>=3 in last 1 minute)
                 cur.execute("""
                     SELECT COUNT(*) FROM executed_commands
                     WHERE command = %s AND timestamp > NOW() - INTERVAL '1 minutes'
@@ -660,7 +659,7 @@ def main(stop_event=None):
                     store_siem_ready_packet(asdict(siem_packet))
 
         # ---------- RESOURCE USAGE (ALWAYS) ----------
-        # anomalies = detect_anomalies(metrics)
+
         anomalies = detect_anomalous_resource_usage(metrics)
 
         if anomalies:
@@ -668,7 +667,6 @@ def main(stop_event=None):
             LOG.info("[Resource anomalies] count=%s mac=%s",
                      len(anomalies), metrics.get("mac_address"))
 
-        # Extract top process info
         processes = metrics.get("per_process_memory") or []
         if processes:
             top_proc = max(processes, key=lambda p: p.get("rss", 0))
@@ -680,7 +678,11 @@ def main(stop_event=None):
             top_process_name = None
             top_process_rss = None
 
-        # Insert structured resource metrics (always happens)
+        # --- Ensure timestamp is never NULL for resource_usage ---
+        ts = metrics.get("timestamp")
+        if not ts:
+            ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         cur.execute(
             """
             INSERT INTO resource_usage (
@@ -694,7 +696,7 @@ def main(stop_event=None):
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                metrics.get("timestamp"),
+                ts,
                 metrics.get("username"),
                 metrics.get("mac_address"),
                 metrics.get("ip_addresses"),
@@ -714,13 +716,11 @@ def main(stop_event=None):
             )
         )
 
-        # Send anomalies to pipeline
         for anomaly in anomalies:
             anomaly_msg = {
                 "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
                 "event_type": "SYSTEM_EVENTS",
                 "event_name": "DDOS_ATTACK_DETECTED",
-                # "event_reason": anomaly.get("Event Details"),
                 "event_reason": anomaly.get("event_reason"),
                 "timestamp": metrics.get("timestamp"),
                 "log_text": json.dumps(metrics),
@@ -729,6 +729,81 @@ def main(stop_event=None):
             store_anomaly_to_database_and_siem(anomaly_msg)
             siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
             store_siem_ready_packet(asdict(siem_packet))
+
+        # ---------- NETWORK STATUS ----------
+        network_records = metrics.get("network_status", [])
+        if network_records:
+            LOG.info(f"[NetworkStatus] Received {len(network_records)} entries from {metrics.get('hostname')}")
+
+            system_mac = metrics.get("mac_address")  # unified MAC for all interfaces
+
+            for record in network_records:
+                iface = record.get("interface", "unknown")
+                is_up = record.get("is_up", False)
+                speed = record.get("speed_mbps", None)
+                mtu = record.get("mtu", None)
+                duplex = record.get("duplex", None)
+                bytes_sent = record.get("bytes_sent", None)
+                bytes_recv = record.get("bytes_recv", None)
+                ip = record.get("ip_address", None)
+                gateway = record.get("gateway_ip", None)
+                ping_ok = record.get("ping_ok", None)
+                latency = record.get("latency_ms", None)
+                conn_state = record.get("event", "UNKNOWN")
+
+                cur.execute("""
+                    SELECT id, is_up, ip_address, connection_status
+                    FROM network_status
+                    WHERE mac_address = %s AND interface_name = %s AND snapshot_date = CURRENT_DATE
+                    ORDER BY id DESC LIMIT 1
+                """, (system_mac, iface))
+
+                existing = cur.fetchone()
+
+                if existing:
+                    existing_id, prev_up, prev_ip, prev_conn_state = existing
+                    if (prev_up != is_up) or (prev_ip != ip) or (prev_conn_state != conn_state):
+                        cur.execute("""
+                            UPDATE network_status
+                            SET timestamp = %s,
+                                is_up = %s,
+                                speed_mbps = %s,
+                                mtu = %s,
+                                duplex = %s,
+                                bytes_sent = %s,
+                                bytes_recv = %s,
+                                ip_address = %s,
+                                gateway_ip = %s,
+                                ping_ok = %s,
+                                latency_ms = %s,
+                                connection_status = %s
+                            WHERE id = %s
+                        """, (
+                            metrics.get("timestamp"),
+                            is_up, speed, mtu, duplex,
+                            bytes_sent, bytes_recv, ip,
+                            gateway, ping_ok, latency, conn_state,
+                            existing_id
+                        ))
+                        LOG.info(f"[NetworkStatus] Updated interface {iface} ({system_mac})")
+                else:
+                    cur.execute("""
+                        INSERT INTO network_status (
+                        timestamp, username, interface_name, is_up, speed_mbps,
+                        mtu, duplex, bytes_sent, bytes_recv, ip_address,
+                        mac_address, gateway_ip, ping_ok, latency_ms, connection_status, snapshot_date
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_DATE)
+                    """, (
+                        metrics.get("timestamp"),
+                        metrics.get("username"),
+                        iface,
+                        is_up, speed, mtu, duplex,
+                        bytes_sent, bytes_recv, ip,
+                        system_mac, gateway, ping_ok, latency, conn_state
+                ))
+
+                    LOG.info(f"[NetworkStatus] New interface {iface} recorded ({system_mac})")
 
         conn.commit()
         cur.close()

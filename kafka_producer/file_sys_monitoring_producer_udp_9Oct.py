@@ -7,6 +7,10 @@ import psutil
 import ipaddress
 import subprocess
 from datetime import datetime
+import re
+from threading import Thread
+from inotify_simple import INotify, flags
+
 
 # Debounce cache to suppress duplicate events
 LAST_EVENT = {}
@@ -81,164 +85,422 @@ IGNORE_KEYWORDS = [
 
     # trash / autosave / history
     "Trash", ".local/share/Trash", ".xsession-errors",
-    ".bash_history", ".recently-used"
+    ".bash_history", ".recently-used",  ".sudo_as_admin_successful"
 ]
 
-def parse_audit_line(line):
-    if 'name=' not in line:
-        return None
 
-    # Extract and sanitize file path
-    path = next((p.split("=", 1)[1].strip('"') for p in line.split() if p.startswith("name=")), None)
-    if not path or path in ["/", ".", "(null)"]:
-        return None
+# ===== Read/Write flag mask and event aggregation =====
+WRITE_FLAGS = 0x1 | 0x2 | 0x40 | 0x200 | 0x400  # WRONLY | RDWR | CREAT | TRUNC | APPEND
+MSG_RE = re.compile(r'msg=audit\((\d+\.\d+):(\d+)\)')
+# put near WRITE_FLAGS/MSG_RE
+SYSCALL_MAP_X86_64 = {
+    "0": "read",
+    "1": "write",
+    "2": "open",
+    "257": "openat",
+    "87": "unlink",
+    "263": "unlinkat",
+    "82": "rename",
+    "316": "renameat2",
+    "276": "renameat",
+    "76": "truncate",
+    "77": "ftruncate",
+}
+def _normalize_syscall(sc, arch):
+    # if already a name, keep; if numeric and arch is x86_64, map common ones
+    if sc and sc.isalpha():
+        return sc
+    if arch in ("c000003e", "x86_64") and sc in SYSCALL_MAP_X86_64:
+        return SYSCALL_MAP_X86_64[sc]
+    return sc
 
-    real_path = os.path.realpath(path)
-    basename = os.path.basename(real_path)
+def _get_flags(rec):
+    """Return open/openat flag value (auto-detect hex or decimal)."""
+    sc = rec.get("syscall", "")
+    raw = rec.get("a2") if sc in ("openat",) else rec.get("a1")
+    if not raw:
+        return 0
+    try:
+        return int(raw, 0)  # auto base (0x.. or decimal)
+    except ValueError:
+        return 0
 
-    # Only monitor configured directories
+
+SYSTEM_NOISE = [
+    "/sys", "/proc", "/dev", "/run", "/tmp", "/var/tmp", "/var/cache",
+    "/virtual", "/devices", "/class", "/dmi", "/id", "/bus", "/kernel",
+    "/udev", "/net", "/power", "/firmware"
+]
+
+def _passes_filters(real_path: str) -> bool:
+    """Return True if path should be monitored, False if it should be ignored."""
+    try:
+        # Normalize and clean the path once
+        real_path = os.path.realpath(real_path).rstrip("/")
+    except Exception:
+        return False
+
+    # Must be under monitored directories
     if not any(real_path.startswith(d) for d in MONITORED_DIRS):
-        return None
+        return False
 
-    # Ignore known background/cache/tmp/database noise
-    if any(k in real_path for k in IGNORE_KEYWORDS):
-        return None
-
-    # Ignore kernel, pseudo, or hardware paths
-    SYSTEM_NOISE = [
-        "/sys", "/proc", "/dev", "/run", "/tmp", "/var/tmp", "/var/cache",
-        "/virtual", "/devices", "/class", "/dmi", "/id", "/bus", "/kernel",
-        "/udev", "/net", "/power", "/firmware"
-    ]
+    # Ignore system-level or internal noise
     if any(seg in real_path for seg in SYSTEM_NOISE):
-        return None
+        return False
+    if any(k in real_path for k in IGNORE_KEYWORDS):
+        return False
 
-    # Skip pseudo file or hardware node names
-    if basename.lower() in [
-        "virtual", "devices", "sys", "class", "dmi", "id",
-        "firmware", "bus"
-    ]:
-        return None
+    # Ignore directories (only files matter)
+    try:
+        if os.path.isdir(real_path):
+            return False
+    except PermissionError:
+        return False
 
-    # Skip home directory self-mod updates (like opening new terminal)
-    user_home = os.path.expanduser("~")
-    if real_path == user_home or real_path.rstrip("/") == os.path.dirname(user_home):
-        return None
-
-    # Skip pgAdmin or pg-related session/config files
-    if "/.pgadmin/" in real_path or "pgadmin" in real_path.lower():
-        return None
-
-    # Ignore directory-only metadata updates (we only care about actual files)
-    if os.path.isdir(real_path):
-        return None
-
-    if any(seg in real_path for seg in [
+    # Skip common shell/config/history files
+    skip_patterns = (
         ".bashrc", ".bash_profile", ".bash_logout", ".profile",
         ".python_history", ".command_log", ".lesshst", ".wget-hsts",
         ".Xauthority", ".pki", ".gnupg", ".ssh", ".history",
-        ".local/share/recently-used.xbel",
-        "2F686F6D65", "VirtualBox VMs", "VMs", "snapshots"
-    ]):
+        ".local/share/recently-used.xbel", "VirtualBox VMs", "snapshots"
+    )
+    if any(seg in real_path for seg in skip_patterns):
+        return False
+
+    # Drop home root and tool self-noise
+    user_home = os.path.expanduser("~")
+    if real_path == user_home or real_path.rstrip("/") == os.path.dirname(user_home):
+        return False
+    if "/.pgadmin/" in real_path or "pgadmin" in real_path.lower():
+        return False
+    if any(seg in real_path for seg in ("/.nvm/", "nvm.sh", "/alias/", "/versions/", "/lts/", "/default")):
+        return False
+    if "UEBA_BACKEND" in real_path:
+        return False
+
+    # AppArmor / Snap / system binary paths
+    if any(seg in real_path for seg in (
+        "/apparmor", "/snap/", "snapd", "/.snap", "snap-confine",
+        "/usr/", "/lib/", "/lib64/", "/sbin/", "/bin/",
+        "/var/lib/snapd", "/var/cache/apparmor", "mnt/", "ns/", "hostfs/"
+    )):
+        return False
+
+    return True
+
+
+def _classify_event(rec):
+    """Classify a complete audit record into (etype, path [, new_path])."""
+    path = rec.get("path")
+    if not path:
         return None
 
-    # Ignore Node/NVM related noise (aliases, completions, version switches)
-    if any(seg in real_path for seg in [
-        "/.nvm/", ".nvm/", "nvm.sh", "bash_completion",
-        "/alias/", "/versions/", "/lts/", "/default"
-    ]):
+    sc = rec.get("syscall", "")
+    success = rec.get("success", "yes")
+    new_path = rec.get("new_path")
+    flags = rec.get("flags", 0)
+
+    # Ignore failed syscalls
+    if success != "yes":
         return None
 
+    # Direct syscall classification
+    if sc in ("unlink", "unlinkat"):
+        return ("deleted", path)
+    if sc in ("rename", "renameat", "renameat2"):
+        return ("renamed", path, new_path)
+    if sc in ("truncate", "ftruncate", "write", "writev", "pwrite64"):
+        return ("modified", path)
 
-    # Detect event type (handle rename and reduce duplicates)
-    if "nametype=CREATE" in line and "nametype=DELETE" in line:
-        etype = "moved"
-    elif "nametype=CREATE" in line:
-        etype = "created"
-    elif "nametype=DELETE" in line:
-        etype = "deleted"
-    elif "nametype=NORMAL" in line:
-        etype = "modified"
-    elif "nametype=RENAME" in line:
-        etype = "moved"
-    else:
-        return None
-    
-        # Ignore pseudo symlinks (proc/self, environment-linked, or mirrored system dirs)
-    if any(seg in real_path for seg in [
-        "/self/", "/proc/self/", "/proc/", "/home/", "/etc/", "/usr/", "/lib/", "/var/",
-        "/run/", "/bin/", "/sbin/", "/snap/", "/boot/"
-    ]) and real_path.startswith("/home") and "UEBA_BACKEND" in real_path:
-        return None
+    # open/openat logic based on access flags
+    if sc in ("open", "openat"):
+        O_CREAT, O_TRUNC, O_APPEND = 0x40, 0x200, 0x400
+        O_RDWR, O_WRONLY = 0x2, 0x1
+        if flags & O_CREAT:
+            return ("created", path)
+        if flags & (O_TRUNC | O_APPEND | O_RDWR | O_WRONLY):
+            return ("modified", path)
+        return ("read", path)
 
+    # Fallback based on PATH record
+    nt = rec.get("nametype")
+    if nt == "CREATE":
+        return ("created", path)
+    if nt == "DELETE":
+        return ("deleted", path)
 
-    # Debounce repeated identical events (e.g. nano multi-writes)
-    now = time.time()
-    last = LAST_EVENT.get(real_path)
-    if last and (now - last < 1.0):  # skip duplicates within 1 second
-        return None
-    LAST_EVENT[real_path] = now
-
-    return etype, real_path
-
-
+    return None
 
 # ===== Stream Audit Log (Live) =====
 def stream_audit_log():
+    """Stream audit.log lines continuously with resilience to log rotation."""
     log_path = "/var/log/audit/audit.log"
-    # suppress tail noise (rotation / permission messages)
+
+    # Use 'tail -n0 -F' to follow from EOF (not replay old history)
     with subprocess.Popen(
-        ["tail", "-F", log_path],
+        ["tail", "-n0", "-F", log_path],
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,   # this cleans the “has been replaced” spam
-        text=True
+        stderr=subprocess.DEVNULL,  # suppress "file replaced" spam
+        text=True,
+        bufsize=1  # line-buffered
     ) as proc:
-        for line in proc.stdout:
-            yield line
+        try:
+            for line in proc.stdout:
+                if line:
+                    yield line.strip()
+        except GeneratorExit:
+            proc.terminate()
+        except Exception as e:
+            print(f"[WARN] stream_audit_log error: {e}")
+            proc.terminate()
 
 
+def parse_and_aggregate():
+    """
+    Tail audit.log, buffer lines per event, extract all PATH entries,
+    classify once per complete event (EOE), and yield normalized events.
+    """
+    buffers = {}
+
+    for line in stream_audit_log():
+        if "msg=audit(" not in line:
+            continue
+
+        m = MSG_RE.search(line)
+        if not m:
+            continue
+        ev_id = m.group(2)
+        buf = buffers.setdefault(ev_id, {"paths": {}})
+
+        parts = line.split()
+
+        # --- PATH ---
+        if "type=PATH" in line:
+            name = next((p.split("=", 1)[1].strip('"') for p in parts if p.startswith("name=")), None)
+            nt = next((p.split("=", 1)[1] for p in parts if p.startswith("nametype=")), None)
+            if not name or name in ("/", ".", "(null)"):
+                continue
+            try:
+                rp = os.path.realpath(name)
+                buf["paths"][nt] = rp
+            except Exception:
+                continue
+
+        # --- SYSCALL ---
+        if "type=SYSCALL" in line:
+            sc = next((p.split("=", 1)[1] for p in parts if p.startswith("syscall=")), "")
+            arch = next((p.split("=", 1)[1] for p in parts if p.startswith("arch=")), "")
+            sc = _normalize_syscall(sc, arch)
+            a1 = next((p.split("=", 1)[1] for p in parts if p.startswith("a1=")), None)
+            a2 = next((p.split("=", 1)[1] for p in parts if p.startswith("a2=")), None)
+            succ = next((p.split("=", 1)[1] for p in parts if p.startswith("success=")), "yes")
+            buf.update({"arch": arch, "syscall": sc, "a1": a1, "a2": a2, "success": succ})
+
+        # --- End of Event (EOE) ---
+        if "type=EOE" in line:
+            rec = buf
+            # pick main + new paths
+            path = (
+                rec["paths"].get("NORMAL")
+                or rec["paths"].get("DELETE")
+                or rec["paths"].get("RENAME_OLD")
+                or rec["paths"].get("CREATE")
+            )
+            newp = rec["paths"].get("RENAME_NEW") or rec["paths"].get("CREATE")
+
+            if path:
+                rec["path"] = path
+            if newp:
+                rec["new_path"] = newp
+
+            rec["flags"] = _get_flags(rec)
+            result = _classify_event(rec)
+            if result:
+                target_path = result[1]
+                if _passes_filters(target_path):
+                    yield result
+
+            # always cleanup to avoid buffer growth
+            buffers.pop(ev_id, None)
+
+
+def emit_close_event(path: str):
+    """Send UDP event when a file is closed."""
+    try:
+        size = os.path.getsize(path) if os.path.exists(path) else 0
+    except (OSError, PermissionError):
+        size = 0
+
+    event_info = {
+        "Event Type": "FILE_AND_OBJECT_ACCESS_EVENTS",
+        "Event Sub Type": "FILE_CLOSED",
+        "Event Details": f"File closed at {path} ({size} bytes) on host {hostname}",
+        "Value": path,
+    }
+
+    metrics = {
+        "timestamp": datetime.now().isoformat(),
+        "hostname": hostname,
+        "mac_address": mac_address,
+        "username": USERNAME,
+        "ip_addresses": (lan_ip, internet_ip),
+        "directory": path,
+        "event_type": "closed",
+        "file_size_bytes": size,
+    }
+
+    event_data = {
+        "timestamp": metrics["timestamp"],
+        "username": metrics["username"],
+        "event_info": event_info,
+        "metrics": metrics,
+        "topic": "sensitive-events",
+    }
+
+    try:
+        sock.sendto(json.dumps(event_data).encode("utf-8"), (UDP_IP, UDP_PORT))
+        print(f"[AUDITD→UDP] CLOSED {path} ({size} bytes)")
+    except Exception as e:
+        print(f"[WARN] Failed to emit close event for {path}: {e}")
+
+
+def start_close_watcher():
+    """Monitor close events via inotify for finer-grained file closure tracking."""
+    inot = INotify()
+    watch_mask = (
+        flags.CLOSE_WRITE | flags.CLOSE_NOWRITE | flags.CREATE | flags.MOVED_TO | flags.ONLYDIR
+    )
+    wd_to_dir = {}
+
+    def add_dir(d):
+        """Add directory to inotify watch list if valid."""
+        try:
+            if not os.path.isdir(d):
+                return
+            if not any(d.startswith(m) for m in MONITORED_DIRS):
+                return
+            if d in wd_to_dir.values():
+                return
+            wd = inot.add_watch(d, watch_mask)
+            wd_to_dir[wd] = d
+        except (OSError, PermissionError):
+            pass  # skip inaccessible directories silently
+
+    # Add existing directories under all monitored roots
+    for root in MONITORED_DIRS:
+        for dirpath, dirnames, _ in os.walk(root):
+            add_dir(dirpath)
+
+    def loop():
+        """Continuous inotify event loop."""
+        while True:
+            try:
+                for event in inot.read(timeout=500):
+                    base = wd_to_dir.get(event.wd, "")
+                    name = event.name or ""
+                    path = os.path.realpath(os.path.join(base, name)) if name else base
+
+                    # If a new directory is created or moved into the tree, start watching it
+                    if (event.mask & flags.CREATE and event.mask & flags.ISDIR) or (
+                        event.mask & flags.MOVED_TO and event.mask & flags.ISDIR
+                    ):
+                        add_dir(path)
+                        continue
+
+                    # Emit close events for files
+                    if event.mask & (flags.CLOSE_WRITE | flags.CLOSE_NOWRITE):
+                        if _passes_filters(path):
+                            emit_close_event(path)
+            except Exception as e:
+                print(f"[WARN] Inotify loop error: {e}")
+                time.sleep(1)  # small backoff on error
+
+    Thread(target=loop, daemon=True, name="CloseWatcher").start()
 # ===== Main =====
 def main():
-    print("\033[1;92m!!!!!!!!! File System Monitoring via Auditd (Live) Running !!!!!!\033[0m")
+    print("\033[1;92m!!!!!!!!! File System Monitoring via Auditd (Live) + Inotify (Close Events) Running !!!!!!\033[0m")
     print("Monitoring directories:")
     for d in MONITORED_DIRS:
         print(f"   {d}")
     time.sleep(1)
 
-    for line in stream_audit_log():
-        parsed = parse_audit_line(line)
-        if not parsed:
-            continue
+    # Start inotify-based CLOSE watcher
+    start_close_watcher()
 
-        etype, path = parsed
+    try:
+        # Process auditd-based events
+        for event in parse_and_aggregate():
+            if not event:
+                continue
 
-        event_info = {
-            "Event Type": "FILE_AND_OBJECT_ACCESS_EVENTS",
-            "Event Sub Type": f"FILE_{etype.upper()}",
-            "Event Details": f"File {etype} at {path} on host {hostname}",
-            "Value": path
-        }
+            # Unpack events
+            if len(event) == 3:
+                etype, old_path, new_path = event
+            else:
+                etype, old_path = event
+                new_path = None
 
-        metrics = {
-            "timestamp": datetime.now().isoformat(),
-            "hostname": hostname,
-            "mac_address": mac_address,
-            "username": USERNAME,
-            "ip_addresses": (lan_ip, internet_ip),
-            "directory": path,
-            "event_type": etype
-        }
+            # Debounce duplicate events
+            now = time.time()
+            last = LAST_EVENT.get(old_path)
+            if last and (now - last < 1.0):
+                continue
+            LAST_EVENT[old_path] = now
 
-        event_data = {
-            "timestamp": metrics["timestamp"],
-            "username": metrics["username"],
-            "event_info": event_info,
-            "metrics": metrics,
-            "topic": "sensitive-events"
-        }
+            # Safely determine file size (account for rename/move)
+            try:
+                if os.path.exists(old_path):
+                    file_size = os.path.getsize(old_path)
+                elif new_path and os.path.exists(new_path):
+                    file_size = os.path.getsize(new_path)
+                else:
+                    file_size = 0
+            except (OSError, PermissionError):
+                file_size = 0
 
-        sock.sendto(json.dumps(event_data).encode("utf-8"), (UDP_IP, UDP_PORT))
-        print(f"[AUDITD→UDP] {etype.upper()} {path}")
+            # Determine final path
+            target_path = new_path if new_path else old_path
+
+            # Build event payload
+            event_info = {
+                "Event Type": "FILE_AND_OBJECT_ACCESS_EVENTS",
+                "Event Sub Type": f"FILE_{etype.upper()}",
+                "Event Details": f"File {etype} at {target_path} ({file_size} bytes) on host {hostname}",
+                "Value": target_path
+            }
+
+            metrics = {
+                "timestamp": datetime.now().isoformat(),
+                "hostname": hostname,
+                "mac_address": mac_address,
+                "username": USERNAME,
+                "ip_addresses": (lan_ip, internet_ip),
+                "directory": target_path,
+                "event_type": etype,
+                "file_size_bytes": file_size
+            }
+
+            event_data = {
+                "timestamp": metrics["timestamp"],
+                "username": metrics["username"],
+                "event_info": event_info,
+                "metrics": metrics,
+                "topic": "sensitive-events"
+            }
+
+            # Send event over UDP safely
+            try:
+                sock.sendto(json.dumps(event_data).encode("utf-8"), (UDP_IP, UDP_PORT))
+                print(f"[AUDITD→UDP] {etype.upper()} {target_path} ({file_size} bytes)")
+            except Exception as e:
+                print(f"[WARN] Failed to send UDP event for {target_path}: {e}")
+
+    except KeyboardInterrupt:
+        print("\n[INFO] UEBA file monitoring stopped by user.")
+    except Exception as e:
+        print(f"[ERROR] Unexpected error in main loop: {e}")
+    finally:
+        sock.close()
 
 
 if __name__ == "__main__":

@@ -26,7 +26,8 @@ from kafka_producer.new_log_monitor import (
     get_failed_logins_by_user,get_failed_logins_by_ip,get_expired_credential_attempts,
     get_dictionary_attack_signatures,get_per_process_memory_usage,get_command_executions,get_cpu_usage,get_successful_logins,
     get_account_lockouts,detect_reverse_shell_events,
-    track_application_usage,track_process_executions,get_failed_password_changes,get_io_wait_time,get_context_switches,get_startup_latency
+    track_application_usage,track_process_executions,get_failed_password_changes,get_io_wait_time,get_context_switches,get_startup_latency,
+    collect_network_status
     # ,detect_privilege_escalation
 )
 # from new_log_monitor import *
@@ -47,9 +48,25 @@ Thread(target=run_app_tracker, daemon=True).start()
 
 process_event_queue = Queue()
 
+# def run_process_tracker():
+#     for event in track_process_executions(poll_interval=2):
+#         process_event_queue.put(event)
+
 def run_process_tracker():
     for event in track_process_executions(poll_interval=2):
         process_event_queue.put(event)
+
+        # ─── Immediately send each process event to the consumer ───
+        try:
+            payload = {
+                "topic": "system-metrics",
+                "process_events": [event]
+            }
+            sock.sendto(json.dumps(payload, default=str).encode("utf-8"), (UDP_IP, UDP_PORT))
+            print(f"\033[1;36m[INSTANT SEND] {event['event']} → {event.get('process_name')} (PID={event.get('pid')})\033[0m")
+        except Exception as e:
+            print(f"\033[1;91m[ERROR] Instant send failed: {e}\033[0m")
+
 
 Thread(target=run_process_tracker, daemon=True).start()
 
@@ -164,7 +181,7 @@ def collect_metrics():
 	    # "privilege_escalation_attempts": detect_privilege_escalation,
         "reverse_shell_events": detect_reverse_shell_events,
         "application_usage": lambda: list(app_usage_queue.queue),
-        "process_events":   lambda: list(process_event_queue.queue)
+        # "process_events":   lambda: list(process_event_queue.queue)
 
     }
 
@@ -195,7 +212,14 @@ def collect_metrics():
         results["command_executions"] = get_command_executions()
     except Exception as e:
         logging.error(f"collect_metrics: get_command_executions failed: {e}")
-        results["command_executions"] = []   
+        results["command_executions"] = []
+
+    try:
+        results["network_status"] = collect_network_status()
+    except Exception as e:
+        logging.error(f"collect_metrics: collect_network_status failed: {e}")
+        results["network_status"] = []
+   
 
     read_rate, write_rate = get_disk_io_rate()
     results["disk_read_rate"]  = read_rate
@@ -258,7 +282,9 @@ def collect_metrics():
         "command_executions":    results["command_executions"],
         "successful_logins":     results["successful_logins"],
         "application_usage":     results["application_usage"],
-        "process_events":        results["process_events"],        
+        "network_status": results["network_status"],
+
+        # "process_events":        results["process_events"],        
     }
     
     # Convert datetime fields in application usage records to ISO strings
@@ -269,11 +295,11 @@ def collect_metrics():
                     record[key] = record[key].isoformat()
 
     # Convert datetime fields in process events to ISO strings
-    if results.get("process_events"):
-        for record in results["process_events"]:
-            for key in ("start_time", "end_time", "timestamp"):
-                if key in record and isinstance(record[key], datetime):
-                    record[key] = record[key].isoformat()
+    # if results.get("process_events"):
+    #     for record in results["process_events"]:
+    #         for key in ("start_time", "end_time", "timestamp"):
+    #             if key in record and isinstance(record[key], datetime):
+    #                 record[key] = record[key].isoformat()
 
     # Clear app usage queue
     while not app_usage_queue.empty():
@@ -329,6 +355,7 @@ def main():
                     # "account_lockouts": data.get("account_lockouts"),
                     # "locked_users": data.get("locked_users"),
                     # "application_usage":data.get("application_usage")
+                    # "network_status":data.get("network_status")
                 
                 }
                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")

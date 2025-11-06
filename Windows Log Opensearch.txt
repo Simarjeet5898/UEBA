@@ -1,0 +1,171 @@
+Windows WinLogbeat and Open Search
+
+0) Prereqs (one-time)
+
+Know your OpenSearch endpoint: http://<SERVER_IP>:9200
+
+Make sure Windows can reach it (outbound TCP 9200 open).
+
+You’ll run PowerShell as Administrator.
+
+
+1) Enable core Windows auditing (so Security log has the good stuff)
+# Logon/Logoff, Privilege use, Policy changes, Account changes, Object access, Process tracking
+auditpol /set /category:"Account Logon"    /success:enable /failure:enable
+auditpol /set /category:"Logon/Logoff"     /success:enable /failure:enable
+auditpol /set /category:"Privilege Use"    /success:enable /failure:enable
+auditpol /set /category:"Policy Change"    /success:enable /failure:enable
+auditpol /set /category:"Account Management" /success:enable /failure:enable
+auditpol /set /category:"Object Access"    /success:enable /failure:enable
+auditpol /set /category:"Detailed Tracking" /success:enable /failure:enable
+
+2) Quick verify
+auditpol /get /category:*
+
+
+2) Install Sysmon (for deep telemetry: process, file, registry, network)
+	Download Sysmon (Sysinternals) and a good config XML (e.g., community “SwiftOnSecurity” config).
+	
+	1️⃣ Download Sysmon
+
+	Go to Microsoft’s official page:
+	👉 https://learn.microsoft.com/en-us/sysinternals/downloads/sysmon
+	
+	
+	after installing sysmon, now Step 2A — Get the Sysmon configuration (XML)
+	Option 1 — Download community config (recommended)
+
+	This is the most widely used and well-tested one:
+	👉 https://github.com/SwiftOnSecurity/sysmon-config
+	
+	Click on “sysmonconfig-export.xml” (or the latest version file).
+	Click “Raw” and press Ctrl + S to save it as: 
+	
+	🧩 Step 2B — Install and Start Sysmon
+	go to that folder where all is kept,
+	3️⃣ Install Sysmon using your downloaded config
+	.\Sysmon64.exe -accepteula -i .\sysmonconfig-export.xml
+	
+	Get-Service Sysmon64 to verify it's running 
+	
+	🧩 Step 2C — Verify logs
+	Get-WinEvent -LogName "Microsoft-Windows-Sysmon/Operational" -MaxEvents 5 | Format-List
+
+	
+
+
+	Install:
+	# Assuming files are in C:\Tools\Sysmon
+		cd C:\Tools\Sysmon
+		.\sysmon64.exe -accepteula -i .\sysmonconfig.xml
+		
+		This starts the Microsoft-Windows-Sysmon/Operational channel with events like:
+
+		1 (Process create), 3 (Network connection), 5 (Process end), 11 (File create), 13 (Registry), 22 (DNS), etc.
+		
+3) Install Winlogbeat (the Windows shipper)
+	https://artifacts.elastic.co/downloads/beats/winlogbeat/winlogbeat-7.10.2-windows-x86_64.zip    ## Check from windows log file
+   Download Winlogbeat 7.10.2 (works well with OpenSearch).
+   Extract, e.g., to C:\Program Files\Winlogbeat\.
+   
+   change in yml: 
+   # ======================== Winlogbeat Configuration ========================
+
+winlogbeat.event_logs:
+  - name: Security
+  - name: System
+  - name: Application
+  - name: Microsoft-Windows-Sysmon/Operational
+
+# For now, just write collected logs to a local file (to test reading works)
+output.file:
+  path: "C:/Tools/Winlogbeat/logs"
+  filename: winlogbeat
+  rotate_every_kb: 10000
+  number_of_files: 5
+
+# Basic internal logging
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: "C:/Tools/Winlogbeat/logs"
+  name: winlogbeat
+  keepfiles: 5
+  rotateeverybytes: 10485760
+
+   🧩 Step 3C — Test and Run Winlogbeat
+   
+   cd C:\Tools\Winlogbeat
+ .\winlogbeat.exe test config                : If it shows “OK,” your YAML is valid.
+  
+ 4️⃣ Install Winlogbeat as a Windows service          # Check windows log here: 
+ 
+
+4) Winlogbeat config (send direct to OpenSearch)
+
+
+
+
+Edit C:\Program Files\Winlogbeat\winlogbeat.yml (replace <SERVER_IP>):
+
+winlogbeat.event_logs:
+  - name: Security
+  - name: System
+  - name: Application
+  - name: Microsoft-Windows-Sysmon/Operational
+
+# Optional: reduce noise or keep only what you want
+# processors:
+#   - drop_event.when.not.or:
+#       - equals.winlog.channel: "Security"
+#       - equals.winlog.channel: "Microsoft-Windows-Sysmon/Operational"
+
+output.opensearch:
+  hosts: ["http://<SERVER_IP>:9200"]
+  index: "winlogbeat-%{+yyyy.MM.dd}"
+  # If your OpenSearch has auth, uncomment:
+  # username: "admin"
+  # password: "admin"
+
+setup.template.name: "winlogbeat"
+setup.template.pattern: "winlogbeat-*"
+setup.ilm.enabled: false    # Use daily indices, simpler with OpenSearch
+
+# (Optional) local agent logging
+logging.level: info
+logging.to_files: true
+logging.files:
+  path: "C:/Program Files/Winlogbeat/logs"
+  name: winlogbeat
+  keepfiles: 5
+  rotateeverybytes: 10485760
+
+
+cd "C:\Program Files\Winlogbeat"
+.\winlogbeat.exe test output       # should say connection successful to OpenSearch
+.\install-service-winlogbeat.ps1
+Start-Service winlogbeat
+Get-Service winlogbeat
+
+
+
+--------------------------------
+
+
+2. Install OpenSearch on Linux
+A. Update system and install dependencies
+sudo apt update && sudo apt install -y wget curl apt-transport-https gnupg
+
+
+B. Add OpenSearch repository
+
+wget -qO - https://artifacts.opensearch.org/publickeys/opensearch.pgp | sudo apt-key add -
+echo "deb https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main" | sudo tee /etc/apt/sources.list.d/opensearch-2.x.list
+sudo apt update
+
+
+
+C. Install OpenSearch
+
+sudo apt install -y opensearch
+
