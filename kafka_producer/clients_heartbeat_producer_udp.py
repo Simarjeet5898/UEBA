@@ -412,6 +412,7 @@ _LOG_CONFIG_DIRS = [
     "/etc/systemd",                # journald.d snippets etc.
 ]
 _LOG_DIRS = [
+    "/tmp/fake_log",
     "/var/log",
     "/var/log/journal",
     "/run/log/journal",
@@ -460,6 +461,7 @@ def _discover_logging_units():
         low = base.lower()
         if any(k in low for k in _LOG_UNIT_KEYWORDS):
             units.add(base)
+    # print(f"[UEBA Client][DEBUG] Discovered logging units: {sorted(units)}")
     return sorted(units)
 
 def system_logging_facility(stop_event=None,
@@ -467,11 +469,13 @@ def system_logging_facility(stop_event=None,
                             proc_scan_interval=10,
                             overflow_scan_interval=60,
                             debounce_seconds=0.5,
-                            overflow_threshold_pct=90):
+                            overflow_threshold_pct=75):
     """
     Comprehensive: detects start, stop, alter, print, dump, delete, rename, overflow
     for any present logging facilities/paths. Emits send_system_event("logging_<component>_<action>").
     """
+    print("[UEBA Client][DEBUG] Logging facility monitor initialized.")
+
     # dynamic discovery (only track existing)
     cfg_files = _exists(_LOG_CONFIG_FILES)
     cfg_dirs  = _exists(_LOG_CONFIG_DIRS)
@@ -537,9 +541,11 @@ def system_logging_facility(stop_event=None,
                 if last_state[name] != active:
                     action = "start" if active else "stop"
                     send_system_event(f"logging_{name}_{action}")
+                    print(f"[UEBA Client][DEBUG] Logging service change detected → {name} {action}")
                     last_state[name] = active
             time.sleep(service_scan_interval)
 
+    rename_buf = {}
     def t_inotify():
         while not (stop_event and stop_event.is_set()):
             events = inotify.read(timeout=1000)
@@ -568,43 +574,58 @@ def system_logging_facility(stop_event=None,
                     if (e.mask & flags.DELETE):
                         if not _debounced(("log_del", path)):
                             send_system_event(f"logging_file_delete_{bname}")
+                            # print(f"[UEBA Client][DEBUG] Log delete → {path}")  
                     elif (e.mask & (flags.MOVED_FROM | flags.MOVED_TO)):
                         # log rotation/rename
                         if not _debounced(("log_mv", path)):
                             send_system_event(f"logging_file_rename_{bname}")
+                            # print(f"[UEBA Client][DEBUG] Log rename → {path}") 
                     elif (e.mask & (flags.MODIFY | flags.CREATE | flags.ATTRIB)):
                         if not _debounced(("log_alt", path)):
                             send_system_event(f"logging_file_alter_{bname}")
+                            # print(f"[UEBA Client][DEBUG] Log alter → {path}")
 
     def t_print_dump():
-        # detect journalctl/logrotate invocations (print vs dump)
         while not (stop_event and stop_event.is_set()):
             try:
-                # scan /proc for commandlines
+                # scan /proc for running processes
                 for pid in os.listdir("/proc"):
                     if not pid.isdigit():
                         continue
+
                     cmdline_path = os.path.join("/proc", pid, "cmdline")
                     try:
                         with open(cmdline_path, "rb") as f:
                             raw = f.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
                     except Exception:
                         continue
+
                     low = raw.lower()
+
+                    # --- DEBUG visibility ---
+                    if "journalctl" in low or "logrotate" in low:
+                        print(f"[UEBA Client][DEBUG] t_print_dump detected process → {low}")
+
+                    # --- journalctl detection ---
                     if "journalctl" in low:
-                        # dump markers
+                        # dump-type actions (rotate, vacuum, flush, relinquish)
                         if any(x in low for x in ("--vacuum", "--rotate", "--flush", "--relinquish-var")):
                             if not _debounced(("dump_journalctl", pid), window=2.0):
                                 send_system_event("logging_dump_journalctl")
                         else:
                             if not _debounced(("print_journalctl", pid), window=2.0):
                                 send_system_event("logging_print_journalctl")
+
+                    # --- logrotate detection ---
                     elif "logrotate" in low:
                         if not _debounced(("dump_logrotate", pid), window=2.0):
                             send_system_event("logging_dump_logrotate")
-            except Exception:
-                pass
+
+            except Exception as e:
+                print(f"[UEBA Client][DEBUG] t_print_dump error: {e}")
+
             time.sleep(proc_scan_interval)
+
 
     def t_overflow():
         # overflow if any log filesystem > threshold
@@ -631,8 +652,11 @@ def system_logging_facility(stop_event=None,
                         continue
                     checked.add(mp)
                     pct = int(_fs_pct_used(mp))
+                    # print(f"[UEBA Client][DEBUG] Overflow check: {mp} usage={pct}% (threshold={overflow_threshold_pct}%)")
+
                     if pct >= overflow_threshold_pct:
                         if not _debounced(("overflow", mp), window=30):
+                            print(f"[UEBA Client][DEBUG] Logging overflow detected → {mp} ({pct}%)")
                             send_system_event(f"logging_overflow_{pct}pct_{mp.replace('/','_')}")
             except Exception:
                 pass
@@ -651,10 +675,260 @@ def system_logging_facility(stop_event=None,
     for t in ts:
         t.join(timeout=1)
 
+# def system_logging_facility(stop_event=None,
+#                             service_scan_interval=5,
+#                             proc_scan_interval=10,
+#                             overflow_scan_interval=60,
+#                             debounce_seconds=0.5,
+#                             overflow_threshold_pct=75):
 
+#     print("[UEBA Client][DEBUG] Logging facility monitor initialized.")
 
+#     # ------------------------------------------------------------------
+#     # Discovery
+#     # ------------------------------------------------------------------
+#     cfg_files = _exists(_LOG_CONFIG_FILES)
+#     cfg_dirs  = _exists(_LOG_CONFIG_DIRS)
+#     log_dirs  = _exists(_LOG_DIRS) or ["/var/log"]
+#     units     = _discover_logging_units()
 
+#     last_state = {}
 
+#     # ------------------------------------------------------------------
+#     # Inotify watcher setup
+#     # ------------------------------------------------------------------
+#     inotify = INotify()
+#     mask = (flags.MODIFY | flags.CREATE | flags.DELETE |
+#             flags.MOVED_FROM | flags.MOVED_TO | flags.ATTRIB)
+
+#     wd_map = {}
+
+#     def _watch_recursively(root):
+#         for r, dirs, _ in os.walk(root):
+#             try:
+#                 wd = inotify.add_watch(r, mask)
+#                 wd_map[wd] = r
+#             except Exception:
+#                 continue
+
+#     for d in cfg_dirs + log_dirs:
+#         if os.path.isdir(d):
+#             _watch_recursively(d)
+#         elif os.path.isfile(d):
+#             parent = os.path.dirname(d)
+#             try:
+#                 wd = inotify.add_watch(parent, mask)
+#                 wd_map[wd] = parent
+#             except Exception:
+#                 pass
+
+#     cfg_roots = tuple(set(cfg_dirs + [os.path.dirname(p) for p in cfg_files]))
+#     log_roots = tuple(set(log_dirs))
+
+#     last_emit = {}
+
+#     def _debounced(key, window=debounce_seconds):
+#         t = time.time()
+#         if key in last_emit and (t - last_emit[key]) < window:
+#             return True
+#         last_emit[key] = t
+#         return False
+
+#     # ------------------------------------------------------------------
+#     # THREAD: Logging service start/stop
+#     # ------------------------------------------------------------------
+#     def t_services():
+#         while not (stop_event and stop_event.is_set()):
+#             current_units = _discover_logging_units() or units
+#             for name in current_units:
+#                 try:
+#                     rc = subprocess.call(["systemctl", "is-active", "--quiet", name],
+#                                          stdout=subprocess.DEVNULL,
+#                                          stderr=subprocess.DEVNULL)
+#                     active = (rc == 0)
+#                 except Exception:
+#                     active = False
+
+#                 if name not in last_state:
+#                     last_state[name] = active
+#                     continue
+
+#                 if last_state[name] != active:
+#                     action = "start" if active else "stop"
+#                     send_system_event(f"logging_{name}_{action}")
+#                     print(f"[UEBA Client][DEBUG] Logging service change → {name} {action}")
+#                     last_state[name] = active
+
+#             time.sleep(service_scan_interval)
+
+#     # ------------------------------------------------------------------
+#     # THREAD: Inotify Processing (Config + Logging paths)
+#     # ------------------------------------------------------------------
+#     rename_buf = {}   # (base_dir, cookie) → old_name
+
+#     def t_inotify():
+#         while not (stop_event and stop_event.is_set()):
+#             events = inotify.read(timeout=1000)
+#             for e in events:
+#                 base = wd_map.get(e.wd, "")
+#                 path = os.path.join(base, e.name)
+#                 bname = os.path.basename(path)
+
+#                 in_cfg_space = base.startswith(cfg_roots) or path in cfg_files
+#                 in_log_space = base.startswith(log_roots)
+
+#                 # -----------------------
+#                 # CONFIG SPACE EVENTS
+#                 # -----------------------
+#                 if in_cfg_space:
+#                     if e.mask & flags.DELETE:
+#                         if not _debounced(("cfg_del", path)):
+#                             send_system_event(f"logging_config_delete_{bname}")
+
+#                     elif e.mask & flags.MOVED_FROM:
+#                         rename_buf[(base, e.cookie)] = bname
+
+#                     elif e.mask & flags.MOVED_TO:
+#                         old = rename_buf.pop((base, e.cookie), None)
+#                         if old:
+#                             if not _debounced(("cfg_rename", base, old, bname)):
+#                                 send_system_event(f"logging_config_rename_{old}_to_{bname}")
+#                         else:
+#                             if not _debounced(("cfg_move_to", base, bname)):
+#                                 send_system_event(f"logging_config_moved_to_{bname}")
+
+#                     else:
+#                         if not _debounced(("cfg_alter", path)):
+#                             send_system_event(f"logging_config_alter_{bname}")
+#                     continue
+
+#                 # -----------------------
+#                 # LOG FILE SPACE EVENTS
+#                 # -----------------------
+#                 if in_log_space:
+
+#                     # DELETE
+#                     if e.mask & flags.DELETE:
+#                         if not _debounced(("log_del", path)):
+#                             send_system_event(f"logging_file_delete_{bname}")
+#                         continue
+
+#                     # TRUE RENAME (same dir)
+#                     if e.mask & flags.MOVED_FROM:
+#                         rename_buf[(base, e.cookie)] = bname
+#                         continue
+
+#                     if e.mask & flags.MOVED_TO:
+#                         old = rename_buf.pop((base, e.cookie), None)
+#                         if old:
+#                             # same directory rename
+#                             if not _debounced(("log_rename", base, old, bname)):
+#                                 send_system_event(f"logging_file_rename_{old}_to_{bname}")
+#                         else:
+#                             # moved into this directory
+#                             if not _debounced(("log_move_to", base, bname)):
+#                                 send_system_event(f"logging_file_moved_to_{bname}")
+#                         continue
+
+#                     # ALTER/CREATE/ATTRIB
+#                     if e.mask & (flags.MODIFY | flags.CREATE | flags.ATTRIB):
+#                         if not _debounced(("log_alter", path)):
+#                             send_system_event(f"logging_file_alter_{bname}")
+#                         continue
+
+#     # ------------------------------------------------------------------
+#     # THREAD: journalctl/logrotate print/dump detection
+#     # ------------------------------------------------------------------
+#     def t_print_dump():
+#         while not (stop_event and stop_event.is_set()):
+#             try:
+#                 for pid in os.listdir("/proc"):
+#                     if not pid.isdigit():
+#                         continue
+
+#                     cmdline = f"/proc/{pid}/cmdline"
+#                     try:
+#                         with open(cmdline, "rb") as f:
+#                             raw = f.read().replace(b"\x00", b" ").decode().strip()
+#                     except:
+#                         continue
+
+#                     low = raw.lower()
+
+#                     if "journalctl" in low:
+#                         if any(x in low for x in ("--vacuum", "--rotate", "--flush", "--relinquish-var")):
+#                             if not _debounced(("dump_jctl", pid), window=2):
+#                                 send_system_event("logging_dump_journalctl")
+#                         else:
+#                             if not _debounced(("print_jctl", pid), window=2):
+#                                 send_system_event("logging_print_journalctl")
+
+#                     elif "logrotate" in low:
+#                         if not _debounced(("dump_lr", pid), window=2):
+#                             send_system_event("logging_dump_logrotate")
+
+#             except Exception as e:
+#                 print(f"[UEBA Client][DEBUG] t_print_dump error: {e}")
+
+#             time.sleep(proc_scan_interval)
+
+#     # ------------------------------------------------------------------
+#     # THREAD: Overflow Detection
+#     # ------------------------------------------------------------------
+#     def t_overflow():
+#         while not (stop_event and stop_event.is_set()):
+#             try:
+#                 checked = set()
+#                 for d in log_dirs:
+#                     if not os.path.exists(d):
+#                         continue
+
+#                     mp = d
+#                     try:
+#                         dev = os.stat(d).st_dev
+#                         while True:
+#                             parent = os.path.dirname(mp) or "/"
+#                             if parent == mp:
+#                                 break
+#                             if os.stat(parent).st_dev != dev:
+#                                 break
+#                             mp = parent
+#                     except:
+#                         mp = d
+
+#                     if mp in checked:
+#                         continue
+#                     checked.add(mp)
+
+#                     pct = int(_fs_pct_used(mp))
+#                     if pct >= overflow_threshold_pct:
+#                         if not _debounced(("overflow", mp), window=30):
+#                             send_system_event(f"logging_overflow_{pct}pct_{mp.replace('/','_')}")
+
+#             except:
+#                 pass
+
+#             time.sleep(overflow_scan_interval)
+
+#     # ------------------------------------------------------------------
+#     # Launch threads
+#     # ------------------------------------------------------------------
+#     threads = [
+#         threading.Thread(target=t_services, daemon=True),
+#         threading.Thread(target=t_inotify, daemon=True),
+#         threading.Thread(target=t_print_dump, daemon=True),
+#         threading.Thread(target=t_overflow, daemon=True),
+#     ]
+
+#     for t in threads:
+#         t.start()
+
+#     # Block
+#     while not (stop_event and stop_event.is_set()):
+#         time.sleep(1)
+
+#     for t in threads:
+#         t.join(timeout=1)
 
 
 
@@ -685,7 +959,8 @@ except AttributeError:
 
 
 def main():
-    print(f"[UEBA Client] Heartbeat producer started for {CLIENT_ID} ...")
+    # print(f"[UEBA Client] Heartbeat producer started for {CLIENT_ID} ...")
+    print("\033[1;32m  !!!!!!!!!!!Heartbeat + System Status Producer started (UDP)!!!!!!!!!!!!!!\033[0m")
 
     # t1 = threading.Thread(target=send_heartbeat, args=(stop_event,))
     # t2 = threading.Thread(target=monitor_subsystems, args=(stop_event,))
@@ -697,7 +972,8 @@ def main():
     t2 = threading.Thread(target=monitor_subsystems, args=(stop_event,))
     t3 = threading.Thread(target=monitor_all_config_changes, args=(stop_event,))
     # NEW: logging facility monitor
-    t4 = threading.Thread(target=system_logging_facility, args=(stop_event,))
+    # t4 = threading.Thread(target=system_logging_facility, args=(stop_event,))
+    t4 = threading.Thread(target=system_logging_facility, kwargs={"stop_event": stop_event, "proc_scan_interval": 1})
 
     t1.start(); t2.start(); t3.start(); t4.start()
     t1.join(); t2.join(); t3.join(); t4.join()

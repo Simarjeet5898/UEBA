@@ -78,7 +78,7 @@ def store_heartbeat(event):
 
 
 # def store_system_status(event):
-#     """Store or update system and subsystem status messages in a separate table."""
+#     """Store or update system, subsystem, and configuration change events."""
 #     try:
 #         conn = psycopg2.connect(**DB_CONFIG)
 #         cur = conn.cursor()
@@ -88,12 +88,12 @@ def store_heartbeat(event):
 #             CREATE TABLE IF NOT EXISTS system_status (
 #                 id SERIAL PRIMARY KEY,
 #                 client_id TEXT,
-#                 event TEXT,                -- clean event/service name
-#                 event_type TEXT,           -- 'system' or 'subsystem'
-#                 status TEXT NULL,          -- active/inactive for subsystems only
+#                 event TEXT,                 -- clean event/service/config name
+#                 event_type TEXT,            -- 'system', 'subsystem', or 'config_change'
+#                 status TEXT NULL,           -- active/inactive (for subsystems)
 #                 timestamp TIMESTAMP,
-#                 boot_time TIMESTAMP NULL,  -- only for startup
-#                 close_time TIMESTAMP NULL, -- only for shutdown/reboot/abort
+#                 boot_time TIMESTAMP NULL,   -- only for startup
+#                 close_time TIMESTAMP NULL,  -- only for shutdown/reboot/abort
 #                 UNIQUE (client_id, event)
 #             );
 #         """)
@@ -104,28 +104,27 @@ def store_heartbeat(event):
 #         timestamp_str = event.get("timestamp")
 #         ts = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
-#         # --- Determine event type and clean name ---
+#         event_type = "unknown"
+#         event_name = raw_event
+#         status = None
+#         boot_time = None
+#         close_time = None
+
+#         # === Handle SYSTEM events ===
 #         if raw_event.startswith("system_"):
 #             event_type = "system"
 #             event_name = raw_event.replace("system_", "")
-#             status = None
 
-#             # --- Decide whether this is startup or shutdown/reboot/abort ---
-#             boot_time = None
-#             close_time = None
 #             if event_name == "startup":
 #                 boot_time = ts
 #             elif event_name in ("shutdown", "abort", "reboot"):
 #                 close_time = ts
 
+#         # === Handle SUBSYSTEM events ===
 #         elif raw_event.startswith("subsystem_"):
 #             event_type = "subsystem"
 #             event_name = raw_event.replace("subsystem_", "")
-#             status = None
-#             boot_time = None
-#             close_time = None
 
-#             # Parse subsystem variations
 #             if event_name.startswith("init_"):
 #                 core = event_name.replace("init_", "")
 #                 if core.endswith("_active"):
@@ -145,14 +144,20 @@ def store_heartbeat(event):
 #             else:
 #                 status = "unknown"
 
-#         else:
-#             event_type = "unknown"
-#             event_name = raw_event
-#             status = None
+#         # === Handle CONFIG CHANGE events ===
+#         elif raw_event.startswith("config_change_"):
+#             event_type = "config_change"
+#             event_name = raw_event.replace("config_change_", "")
+#             status = None  # no active/inactive state
 #             boot_time = None
 #             close_time = None
 
-#         # === UPSERT ===
+#         # === Unknown events ===
+#         else:
+#             event_type = "unknown"
+#             event_name = raw_event
+
+#         # === UPSERT (insert or update) ===
 #         cur.execute("""
 #             INSERT INTO system_status (client_id, event, event_type, status, timestamp, boot_time, close_time)
 #             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -174,7 +179,7 @@ def store_heartbeat(event):
 #         LOG.error(f"System status insert/update error: {e}")
 
 def store_system_status(event):
-    """Store or update system, subsystem, and configuration change events."""
+    """Store or update system, subsystem, config, and logging facility change events."""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
@@ -184,13 +189,14 @@ def store_system_status(event):
             CREATE TABLE IF NOT EXISTS system_status (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT,
-                event TEXT,                 -- clean event/service/config name
-                event_type TEXT,            -- 'system', 'subsystem', or 'config_change'
+                event TEXT,                 -- clean event/service/config/log name
+                event_type TEXT,            -- 'system', 'subsystem', 'config_change', or 'logging'
                 status TEXT NULL,           -- active/inactive (for subsystems)
+                details TEXT NULL,          -- extra info for logging actions
                 timestamp TIMESTAMP,
                 boot_time TIMESTAMP NULL,   -- only for startup
                 close_time TIMESTAMP NULL,  -- only for shutdown/reboot/abort
-                UNIQUE (client_id, event)
+                UNIQUE (client_id, event, event_type, details)
             );
         """)
 
@@ -203,10 +209,11 @@ def store_system_status(event):
         event_type = "unknown"
         event_name = raw_event
         status = None
+        details = None
         boot_time = None
         close_time = None
 
-        # === Handle SYSTEM events ===
+        # === SYSTEM EVENTS ===
         if raw_event.startswith("system_"):
             event_type = "system"
             event_name = raw_event.replace("system_", "")
@@ -216,7 +223,7 @@ def store_system_status(event):
             elif event_name in ("shutdown", "abort", "reboot"):
                 close_time = ts
 
-        # === Handle SUBSYSTEM events ===
+        # === SUBSYSTEM EVENTS ===
         elif raw_event.startswith("subsystem_"):
             event_type = "subsystem"
             event_name = raw_event.replace("subsystem_", "")
@@ -240,36 +247,48 @@ def store_system_status(event):
             else:
                 status = "unknown"
 
-        # === Handle CONFIG CHANGE events ===
+        # === CONFIG CHANGE EVENTS ===
         elif raw_event.startswith("config_change_"):
             event_type = "config_change"
             event_name = raw_event.replace("config_change_", "")
-            status = None  # no active/inactive state
-            boot_time = None
-            close_time = None
 
-        # === Unknown events ===
+        # === LOGGING EVENTS ===
+        elif raw_event.startswith("logging_"):
+            event_type = "logging"
+            event_name = raw_event.replace("logging_", "")
+
+            # Split like: "file_rename_test.log" → action="file_rename", details="test.log"
+            parts = event_name.split("_", 2)
+            if len(parts) >= 2:
+                event_name = f"{parts[0]}_{parts[1]}"
+                if len(parts) == 3:
+                    details = parts[2]
+            else:
+                details = None
+
+        # === UNKNOWN EVENTS ===
         else:
             event_type = "unknown"
             event_name = raw_event
 
-        # === UPSERT (insert or update) ===
+        # === UPSERT ===
         cur.execute("""
-            INSERT INTO system_status (client_id, event, event_type, status, timestamp, boot_time, close_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (client_id, event)
+            INSERT INTO system_status (client_id, event, event_type, status, details, timestamp, boot_time, close_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (client_id, event, event_type, details)
             DO UPDATE SET
-                status = EXCLUDED.status,
                 timestamp = EXCLUDED.timestamp,
+                status = COALESCE(EXCLUDED.status, system_status.status),
                 boot_time = COALESCE(EXCLUDED.boot_time, system_status.boot_time),
                 close_time = COALESCE(EXCLUDED.close_time, system_status.close_time);
-        """, (client_id, event_name, event_type, status, ts, boot_time, close_time))
+
+        """, (client_id, event_name, event_type, status, details, ts, boot_time, close_time))
 
         conn.commit()
         cur.close()
         conn.close()
 
-        print(f"[SystemStatus Consumer] Upserted {event_type}: {event_name} ({status}) for {client_id}")
+        print(f"[SystemStatus Consumer] {event_type.upper()} → {event_name} ({status}) details={details} client={client_id}")
 
     except Exception as e:
         LOG.error(f"System status insert/update error: {e}")
@@ -284,23 +303,28 @@ def store_system_status(event):
 #     try:
 #         while not (stop_event and stop_event.is_set()):
 #             data, addr = sock.recvfrom(65535)
-#             event = json.loads(data.decode("utf-8"))
+#             try:
+#                 event = json.loads(data.decode("utf-8"))
+#             except json.JSONDecodeError:
+#                 print(f"[DEBUG] Invalid JSON received from {addr}")
+#                 continue
 
-#             event_type = event.get("type")
+#             event_type = event.get("type", "unknown")
+#             event_name = event.get("event", "unknown")
 
 #             # --- Handle Heartbeat messages ---
 #             if event_type == "heartbeat":
 #                 print(f"\n[HEARTBEAT from {addr}]\n{json.dumps(event, indent=2)}")
 #                 store_heartbeat(event)
 
-#             # --- Handle System/SubSystem messages ---
+#             # --- Handle System/SubSystem/Config messages ---
 #             elif event_type == "system_status":
-#                 # Determine if it's system or subsystem for better display
-#                 event_name = event.get("event", "unknown")
 #                 if event_name.startswith("system_"):
 #                     etype = "SYSTEM"
 #                 elif event_name.startswith("subsystem_"):
 #                     etype = "SUBSYSTEM"
+#                 elif event_name.startswith("config_change_"):
+#                     etype = "CONFIG"
 #                 else:
 #                     etype = "UNKNOWN"
 
@@ -310,17 +334,23 @@ def store_system_status(event):
 #             # --- Unknown event types ---
 #             else:
 #                 print(f"[DEBUG] Unknown event type received: {event_type}")
+#                 print(f"Raw data: {data.decode('utf-8', errors='ignore')}")
 
 #     except KeyboardInterrupt:
 #         LOG.info("Heartbeat consumer stopped by user.")
+#         print("\n[Consumer] Stopped by user.")
 #     except Exception as e:
 #         LOG.error(f"Heartbeat consumer error: {e}")
+#         print(f"[ERROR] Consumer encountered an exception: {e}")
 #     finally:
 #         sock.close()
 #         LOG.info("UDP socket closed.")
+#         print("[Consumer] UDP socket closed.")
 
 def main(stop_event=None):
-    print("\033[1;32m  !!!!!!!!!!!Heartbeat Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
+    # print("\033[1;32m  !!!!!!!!!!!Heartbeat Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
+    print("\033[1;32m  !!!!!!!!!!!Heartbeat + System Status Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
+
     LOG.info("Heartbeat consumer started (UDP)")
 
     try:
@@ -340,7 +370,7 @@ def main(stop_event=None):
                 print(f"\n[HEARTBEAT from {addr}]\n{json.dumps(event, indent=2)}")
                 store_heartbeat(event)
 
-            # --- Handle System/SubSystem/Config messages ---
+            # --- Handle System/SubSystem/Config/Logging messages ---
             elif event_type == "system_status":
                 if event_name.startswith("system_"):
                     etype = "SYSTEM"
@@ -348,6 +378,8 @@ def main(stop_event=None):
                     etype = "SUBSYSTEM"
                 elif event_name.startswith("config_change_"):
                     etype = "CONFIG"
+                elif event_name.startswith("logging_"):     # <-- added
+                    etype = "LOGGING"                        # <-- added
                 else:
                     etype = "UNKNOWN"
 
@@ -369,7 +401,6 @@ def main(stop_event=None):
         sock.close()
         LOG.info("UDP socket closed.")
         print("[Consumer] UDP socket closed.")
-
 
 
 if __name__ == "__main__":

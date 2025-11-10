@@ -9,9 +9,6 @@ bin/kafka-server-start.sh config/server.properties
 
 
 
-
-
-
 ########## for running gui
 1. open the frontend code and in that App.js file you have to run with command: npm start
 2. in config.js of front end code change export const BASE_URL = "http://192.168.242.36:8000"; 
@@ -173,3 +170,117 @@ simar@simar-ThinkBook-14-G2-ITL:~$
 
 
 
+################## Making Exe as service #############################
+Step 1: Check what kind of binary you have.
+file ./ueba_client
+
+Step 2: Create the installation directory
+sudo mkdir -p /opt/ueba-client
+sudo cp ./ueba_client /opt/ueba-client/
+sudo chmod +x /opt/ueba-client/ueba_client
+
+Step 3: Create the systemd service file
+
+sudo tee /etc/systemd/system/ueba-client.service >/dev/null << 'EOF'
+[Unit]
+Description=UEBA Client Service
+After=network.target
+
+[Service]
+ExecStart=/opt/ueba-client/ueba_client
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+
+to verify it: cat /etc/systemd/system/ueba-client.service
+
+Step 4: Reload systemd + enable service at boot
+
+sudo systemctl daemon-reload
+sudo systemctl enable ueba-client
+sudo systemctl start ueba-client
+
+to verify: systemctl status ueba-client
+
+TO stop the service:
+sudo systemctl stop ueba-client  # To stop the service cleanly
+sudo systemctl disable ueba-client # To disable it from starting on boot
+
+
+
+
+# For deployment in 100's of machines
+Step 1 — Install Ansible + sshpass (only on YOUR machine)
+sudo apt update
+sudo apt install ansible sshpass -y
+
+Step 2- CReate hosts.ini file.
+
+nano hosts.ini  #currently here: /home/simar/Documents/UEBA/UEBA_Versions/UEBA_v_Nov7
+
+
+like this: [clients]
+# Format:
+# IP_ADDRESS ansible_user=USERNAME ansible_password=PASSWORD
+
+192.168.1.10 ansible_user=user1 ansible_password=pass1
+192.168.1.11 ansible_user=user2 ansible_password=pass2
+192.168.1.12 ansible_user=user3 ansible_password=pass3
+
+Step 3- Create the deploy.yml (Ansible 1-click installer)
+nano deploy.yml # /home/simar/Documents/UEBA/UEBA_Versions/UEBA_v_Nov7
+
+Step 4: 
+1. keep these three at one place: deploy.yml, hosts.ini, ueba_client
+2. copy the service to exact this folder: cp /etc/systemd/system/ueba-client.service .
+
+Step 5: Run this command
+ansible-playbook deploy.yml -i hosts.ini
+
+
+Run this on the target laptop, not your machine:
+sudo apt update
+sudo apt install openssh-server -y
+
+
+
+
+----------------------------------
+Move server binary into place:
+
+sudo mkdir -p /opt/ueba-server
+sudo cp ./ueba_server /opt/ueba-server/
+sudo chmod +x /opt/ueba-server/ueba_server
+
+STEP 2 — Create the server service file
+
+sudo tee /etc/systemd/system/ueba-server.service >/dev/null << 'EOF'
+[Unit]
+Description=UEBA Server Service
+After=network.target
+
+[Service]
+ExecStart=/opt/ueba-server/ueba_server
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+
+STEP 3 — Reload systemd + enable + start server
+sudo systemctl daemon-reload
+sudo systemctl enable ueba-server
+sudo systemctl start ueba-server
+
+systemctl status ueba-server
+
+
+
+---------------------
+to check the services running: systemctl --type=service --state=running --no-pager --all

@@ -60,31 +60,77 @@ DB_CONFIG = {
 # ─── Connect to DB and ensure table ────────────────────────────
 def ensure_table(conn):
     cur = conn.cursor()
+    # cur.execute("""
+    #     CREATE TABLE IF NOT EXISTS connected_entities (
+    #         id              SERIAL PRIMARY KEY,
+    #         username        TEXT,
+    #         timestamp       TIMESTAMP,
+    #         hostname        TEXT,
+    #         mac_address     TEXT,
+    #         vendor_id       TEXT,
+    #         product_id      TEXT,
+    #         vendor_name     TEXT,
+    #         product_name    TEXT,
+    #         serial_number   TEXT,
+    #         busnum          TEXT,
+    #         devnum          TEXT,
+    #         device_type     TEXT,
+    #         device_node     TEXT,
+    #         sys_name        TEXT,
+    #         driver          TEXT,
+    #         usb_version     TEXT,
+    #         speed           TEXT,
+    #         connection_status TEXT,
+    #         session_start_time TIMESTAMP,
+    #         session_duration_sec INTEGER
+    #     );
+    # """)
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS connected_entities (
-            id              SERIAL PRIMARY KEY,
-            username        TEXT,
-            timestamp       TIMESTAMP,
-            hostname        TEXT,
-            mac_address     TEXT,
-            vendor_id       TEXT,
-            product_id      TEXT,
-            vendor_name     TEXT,
-            product_name    TEXT,
-            serial_number   TEXT,
-            busnum          TEXT,
-            devnum          TEXT,
-            device_type     TEXT,
-            device_node     TEXT,
-            sys_name        TEXT,
-            driver          TEXT,
-            usb_version     TEXT,
-            speed           TEXT,
-            connection_status TEXT,
-            session_start_time TIMESTAMP,
-            session_duration_sec INTEGER
-        );
+    CREATE TABLE IF NOT EXISTS connected_entities (
+        id SERIAL PRIMARY KEY,
+
+        username        TEXT,
+        timestamp       TIMESTAMP,
+        snapshot_date   DATE GENERATED ALWAYS AS (timestamp::date) STORED,  -- ⬅ per-day key
+        hostname        TEXT,
+        mac_address     TEXT,
+
+        vendor_id       TEXT,
+        product_id      TEXT,
+        vendor_name     TEXT,
+        product_name    TEXT,
+        serial_number   TEXT,
+
+        busnum          TEXT,
+        devnum          TEXT,
+        device_type     TEXT,
+        device_node     TEXT,
+        sys_name        TEXT,
+        driver          TEXT,
+        usb_version     TEXT,
+        speed           TEXT,
+
+        connection_status    TEXT,
+        session_start_time   TIMESTAMP,
+        session_duration_sec INTEGER,
+
+        CONSTRAINT connected_entities_active_unique UNIQUE (
+            username,
+            hostname,
+            mac_address,
+            vendor_id,
+            product_id,
+            busnum,
+            devnum,
+            device_type,
+            product_name,
+            snapshot_date,          
+            connection_status
+        )
+    );
     """)
+
+
     conn.commit()
     cur.close()
 
@@ -94,6 +140,19 @@ def insert_device_event(conn, data):
 
     if data["connection_status"] == "connected":
         # Insert a new row for connection
+        # insert_sql = """
+        #     INSERT INTO connected_entities (
+        #         username, timestamp, hostname, mac_address,
+        #         vendor_id, product_id, vendor_name, product_name, serial_number,
+        #         busnum, devnum, device_type, device_node, sys_name, driver,
+        #         usb_version, speed, connection_status, session_start_time, session_duration_sec
+        #     ) VALUES (
+        #         %(username)s, %(timestamp)s, %(hostname)s, %(mac_address)s,
+        #         %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
+        #         %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
+        #         %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
+        #     );
+        # """
         insert_sql = """
             INSERT INTO connected_entities (
                 username, timestamp, hostname, mac_address,
@@ -105,22 +164,47 @@ def insert_device_event(conn, data):
                 %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
                 %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
                 %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
-            );
+            )
+            ON CONFLICT ON CONSTRAINT connected_entities_active_unique
+            DO NOTHING;
         """
+
         cur.execute(insert_sql, data)
 
     elif data["connection_status"] == "disconnected":
         # Update existing row instead of inserting
+        # update_sql = """
+        #     UPDATE connected_entities
+        #     SET connection_status = %(connection_status)s,
+        #         session_duration_sec = %(session_duration_sec)s
+        #     WHERE vendor_id = %(vendor_id)s
+        #       AND product_id = %(product_id)s
+        #       AND hostname = %(hostname)s
+        #       AND mac_address = %(mac_address)s
+        #       AND session_start_time = %(session_start_time)s;
+        # """
         update_sql = """
-            UPDATE connected_entities
-            SET connection_status = %(connection_status)s,
+            UPDATE connected_entities ce
+            SET connection_status = 'disconnected',
                 session_duration_sec = %(session_duration_sec)s
-            WHERE vendor_id = %(vendor_id)s
-              AND product_id = %(product_id)s
-              AND hostname = %(hostname)s
-              AND mac_address = %(mac_address)s
-              AND session_start_time = %(session_start_time)s;
+            WHERE ce.id = (
+                SELECT id FROM connected_entities
+                WHERE username = %(username)s
+                AND hostname = %(hostname)s
+                AND mac_address = %(mac_address)s
+                AND vendor_id = %(vendor_id)s
+                AND product_id = %(product_id)s
+                AND busnum = %(busnum)s
+                AND devnum = %(devnum)s
+                AND device_type = %(device_type)s
+                AND product_name = %(product_name)s
+                AND connection_status = 'connected'
+                ORDER BY timestamp DESC
+                LIMIT 1
+            );
         """
+
+
         cur.execute(update_sql, data)
 
     conn.commit()

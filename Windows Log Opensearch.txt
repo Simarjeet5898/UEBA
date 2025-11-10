@@ -169,3 +169,26 @@ C. Install OpenSearch
 
 sudo apt install -y opensearch
 
+
+
+
+
+Buddy, I have made ueba client and server architecture. everything is fine. it is working.
+I also made the service, but i noticed few things.
+
+Like i have made the exe/service where i have auto spawn when the exe get's crash.
+Let's not go to service, let's talk of exe, my server is running using many conusmers, they are listening the producers
+So what is done, when the data comes, consumer makes table and stores in db.
+
+Now the main interesting thing.
+1. When my client exe starts again, it sends the same entries and again all those entries are saved in db.
+say for example one combination: connected entitites producer sends data, 
+connected_entities receives those entries and logs them in the db.
+perfect this is exactly what we want.
+
+Now, say i close or client exe got crashed, it starts again, so same entries are sent again to db. 
+
+
+say first time i get these:
+
+
