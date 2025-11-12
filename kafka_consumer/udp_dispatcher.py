@@ -10,7 +10,8 @@ except Exception as e:
 
 UDP_IP   = config.get("udp", {}).get("server_ip", "127.0.0.1")
 UDP_PORT = int(config.get("udp", {}).get("server_port", 5000))
-if UDP_IP == "127.0.0.0":
+# if UDP_IP == "127.0.0.0":
+if UDP_IP in ("127.0.0.0", "0.0.0.0"):
     UDP_IP = "127.0.0.1"
 
 CONSUMER_PORTS = {
@@ -22,6 +23,7 @@ CONSUMER_PORTS = {
     "connected_entities": 6006,
     "login_events": 6007,
     "clients_heartbeat": 6008, 
+    "privileged_user_monitoring": 6009,
 }
 
 # show forward confirmations

@@ -17,7 +17,6 @@ import shutil
 import pwd
 import signal
 import json
-from datetime import datetime, timezone, timedelta
 
 
 _last_login_check = datetime.now(timezone.utc)
@@ -397,7 +396,6 @@ else:
     )
 
 
-from datetime import datetime
 import tzlocal  # pip install tzlocal
 
 _seen_logins = set()
@@ -1516,7 +1514,6 @@ expired_cred_window_start    = datetime.now(timezone.utc)
 dict_attack_window_start     = datetime.now(timezone.utc)
 
 
-from datetime import datetime, timedelta, timezone
 
 
 
@@ -1780,11 +1777,6 @@ def get_failed_password_changes(
 
 
 ############### UEBA_10:: Command Execution Monitoring #################
-
-import os
-import pwd
-from datetime import datetime
-
 script_start_time = datetime.now()
 _last_seen_command_time = script_start_time
 

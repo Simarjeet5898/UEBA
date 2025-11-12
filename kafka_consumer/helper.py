@@ -601,7 +601,7 @@ def build_file_sys_moni_packet(raw_anomaly):
     base = map_common_fields(raw_anomaly)
 
     base.update({
-        "operation_type": CONFIG["operation_type"].get(raw_anomaly.get("operation_type", "NA"), 0),
+        # "operation_type": CONFIG["operation_type"].get(raw_anomaly.get("operation_type", "NA"), 0),
         "file_name": raw_anomaly.get("file_name", "N/A"),
         "file_path": raw_anomaly.get("file_path", "N/A"),
         "frequency_count": int(raw_anomaly.get("frequency_count", 0))

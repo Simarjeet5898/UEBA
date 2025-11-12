@@ -105,6 +105,9 @@ def main():
     threads.append(_spawn("kafka_consumer.file_sys_monitoring_consumer_udp", "File System Monitoring Consumer", delay_s=0.4))
     threads.append(_spawn("kafka_consumer.clients_heartbeat_consumer_udp", "Heartbeat Consumer", delay_s=0.9))
 
+    threads.append(_spawn("kafka_consumer.priviledge_user_monitoring_consumer_udp", "Privileged User Consumer", delay_s=1.0))
+
+
 
 
     # Dashboard API → separate log file outside "consumers"

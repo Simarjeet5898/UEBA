@@ -39,7 +39,8 @@ FREQ_WINDOW = 60  # seconds
 import string
 
 # ---------------- Baseline Rules ----------------
-PROTECTED_DIRS = ["/etc", "/bin", "/usr"]
+# PROTECTED_DIRS = ["/etc", "/bin", "/usr"]
+PROTECTED_DIRS = sensitive_dirs
 
 def baseline_ok(evt):
     """
@@ -102,6 +103,8 @@ def store_file_event(evt):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
+
+        # Ensure table exists with log_text added
         cur.execute("""
             CREATE TABLE IF NOT EXISTS file_system_monitoring (
                 id SERIAL PRIMARY KEY,
@@ -110,111 +113,256 @@ def store_file_event(evt):
                 hostname TEXT,
                 mac_address TEXT,
                 directory TEXT,
-                event_type TEXT
+                event_type TEXT,
+                log_text TEXT
             )
         """)
+
+        # -------- build log_text --------
+        event_type = evt["metrics"].get("event_type")
+        directory = evt["metrics"].get("directory")
+
+        log_text = None
+
+        value = evt.get("event_info", {}).get("Value")
+
+        if event_type == "renamed":
+            # rename always src → dest
+            src = value.get("from")
+            dest = value.get("to")
+            log_text = f"File renamed: {src} → {dest}"
+
+        elif event_type == "moved":
+            src = value.get("from")
+            dest = value.get("to")
+            log_text = f"File moved: {src} → {dest}"
+
+        else:
+            log_text = f"File event '{event_type}' occurred on {directory}"
+
+        # -------- insert event --------
         cur.execute("""
             INSERT INTO file_system_monitoring (
-                timestamp, username, hostname, mac_address, directory, event_type
-            ) VALUES (%s, %s, %s, %s, %s, %s)
+                timestamp, username, hostname, mac_address, directory, event_type, log_text
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             evt['timestamp'],
             evt.get('username'),
             evt['metrics'].get('hostname'),
             evt['metrics'].get('mac_address'),
-            evt['metrics'].get('directory'),
-            evt['metrics'].get('event_type'),
+            directory,
+            event_type,
+            log_text
         ))
+
         conn.commit()
         cur.close()
         conn.close()
+
     except Exception as e:
         print(f"[ERROR] Failed to log event: {e}")
-        LOG.error("Failed to log file event: %s", e)
+        LOG.error(f"Failed to log file event: {e}")
 
+
+
+# def main(stop_event=None):
+#     print("\033[1;92m!!!!!!!!! File System Monitoring Consumer Running (UDP) !!!!!!\033[0m")
+#     LOG.info("!!!!!!!!! File System Monitoring Consumer Running (UDP) !!!!!!")
+
+
+#     # map raw watchdog events → SOC style strings
+#     event_name_mapping = {
+#         "created": "FILE_WRITE",
+#         "modified": "FILE_WRITE",
+#         "deleted": "FILE_DELETE",
+#         "moved": "FILE_PERMISSION_CHANGE"
+#     }
+
+#     try:
+#         while not (stop_event and stop_event.is_set()):
+#             data, addr = sock.recvfrom(65535)
+#             evt = json.loads(data.decode("utf-8"))
+
+#             if evt.get("topic") == "sensitive-events":
+#                 LOG.info(
+#                     "[FSM received] dir=%s event=%s file=%s host=%s",
+#                     evt.get("metrics", {}).get("directory"),
+#                     evt.get("metrics", {}).get("event_type"),
+#                     evt.get("metrics", {}).get("file_name"),
+#                     evt.get("metrics", {}).get("hostname"),
+#                 )
+#                 print(f"[CONSUMED EVENT from {addr}]\n{json.dumps(evt, indent=2)}")
+
+#                 path = evt["metrics"].get("directory", "")
+#                 # freq_anomaly, freq_count = is_access_frequency_anomalous(path)
+#                 freq_anomaly, freq_count = is_access_frequency_anomalous(path)
+#                 rule_violation, rule_reason = baseline_deviation(evt)
+#                 anomaly_flag = is_sensitive(path) or freq_anomaly or rule_violation
+
+#                 anomaly_flag = is_sensitive(path) or freq_anomaly
+#                 if anomaly_flag:
+#                     LOG.info(
+#                         "[FSM anomaly] dir=%s event=%s sensitive=%s freq=%s",
+#                         path,
+#                         evt["metrics"].get("event_type", "NA"),
+#                         is_sensitive(path),
+#                         freq_count,
+#                     )
+
+#                 # Log all file events (keeps raw event_type: created/modified/deleted/moved)
+#                 store_file_event(evt)
+
+#                 if anomaly_flag:
+#                     raw_event_type = evt["metrics"].get("event_type", "NA")
+#                     mapped_event_name = event_name_mapping.get(raw_event_type, "NA")
+
+#                     anomaly = {
+#                         "msg_id": "UEBA_SIEM_FILE_SYS_MONI_MSG",
+#                         "event_type": "FILE_AND_OBJECT_ACCESS_EVENTS",
+#                         # anomalies_log.event_subtype will show FILE_WRITE / FILE_DELETE etc.
+#                         "event_name": mapped_event_name,
+#                         # "event_reason": f"{mapped_event_name} detected in sensitive directory",
+#                         "event_reason": rule_reason or (
+#                             f"{mapped_event_name} detected in sensitive directory" if is_sensitive(path)
+#                             else f"Frequency anomaly: {freq_count} accesses in {FREQ_WINDOW}s"
+#                         ),
+#                         "timestamp": evt.get("timestamp"),
+#                         "log_text": json.dumps(evt, default=str),
+#                         "severity": "ALERT",
+#                         "username": evt.get("username"),
+#                         "device_hostname": evt["metrics"].get("hostname"),
+#                         "device_mac_id": evt["metrics"].get("mac_address"),
+#                         "file_name": evt["metrics"].get("file_name", "N/A"),
+#                         "file_path": path,
+#                         # keep raw value for reference
+#                         # "operation_type": raw_event_type,
+#                         "frequency_count": freq_count,
+#                     }
+
+#                     try:
+#                         store_anomaly_to_database_and_siem(anomaly)
+                        
+#                         siem_packet = build_file_sys_moni_packet(anomaly)
+#                         store_siem_ready_packet(asdict(siem_packet))
+#                     except Exception as e:
+#                         LOG.error(f"Failed to process file anomaly: {e}")
+
+
+#     except KeyboardInterrupt:
+#         print("\nConsumer stopped by user.")
+#     except Exception as e:
+#         LOG.error(f"UDP consumer error: {e}")
+#     finally:
+#         sock.close()
+#         LOG.info("UDP consumer closed.")
 
 def main(stop_event=None):
     print("\033[1;92m!!!!!!!!! File System Monitoring Consumer Running (UDP) !!!!!!\033[0m")
     LOG.info("!!!!!!!!! File System Monitoring Consumer Running (UDP) !!!!!!")
 
-
-    # map raw watchdog events → SOC style strings
+    # Mapping for SIEM event subtype
     event_name_mapping = {
-        "created": "FILE_WRITE",
+        "created": "FILE_CREATED",
         "modified": "FILE_WRITE",
         "deleted": "FILE_DELETE",
-        "moved": "FILE_PERMISSION_CHANGE"
+        "moved": "FILE_MOVED",
+        "renamed": "FILE_RENAMED"
     }
+
+    # open + close_nowrite are NOT anomalies unless frequency anomaly
+    ignore_list = {"open", "close_nowrite"}
 
     try:
         while not (stop_event and stop_event.is_set()):
             data, addr = sock.recvfrom(65535)
             evt = json.loads(data.decode("utf-8"))
 
-            if evt.get("topic") == "sensitive-events":
+            if evt.get("topic") != "sensitive-events":
+                continue
+
+            # Print event
+            print(f"[CONSUMED EVENT from {addr}]\n{json.dumps(evt, indent=2)}")
+
+            # ---------------- extract required fields ----------------
+            path = evt["metrics"].get("directory", "")
+            etype = evt["metrics"].get("event_type", "")
+
+            sensitive_hit = is_sensitive(path)
+            freq_anomaly, freq_count = is_access_frequency_anomalous(path)
+
+            # ---------------- anomaly logic ----------------
+            if sensitive_hit:
+                # operations NOT ignored are anomaly
+                if etype not in ignore_list:
+                    anomaly_flag = True
+                else:
+                    anomaly_flag = freq_anomaly  # open/close_nowrite anomaly only on freq
+            else:
+                anomaly_flag = freq_anomaly
+
+            # ---------------- special case for move → sensitive ----------------
+            # if a file is moved INTO a sensitive directory treat as FILE_CREATED
+            special_moved_to_sensitive = False
+            if etype == "moved" and sensitive_hit:
+                anomaly_flag = True
+                special_moved_to_sensitive = True
+
+            # ---------------- log anomaly ----------------
+            if anomaly_flag:
                 LOG.info(
-                    "[FSM received] dir=%s event=%s file=%s host=%s",
-                    evt.get("metrics", {}).get("directory"),
-                    evt.get("metrics", {}).get("event_type"),
-                    evt.get("metrics", {}).get("file_name"),
-                    evt.get("metrics", {}).get("hostname"),
+                    "[FSM anomaly] dir=%s event=%s sensitive=%s freq=%s",
+                    path, etype, sensitive_hit, freq_count
                 )
-                print(f"[CONSUMED EVENT from {addr}]\n{json.dumps(evt, indent=2)}")
 
-                path = evt["metrics"].get("directory", "")
-                # freq_anomaly, freq_count = is_access_frequency_anomalous(path)
-                freq_anomaly, freq_count = is_access_frequency_anomalous(path)
-                rule_violation, rule_reason = baseline_deviation(evt)
-                anomaly_flag = is_sensitive(path) or freq_anomaly or rule_violation
+            # ---------------- store raw event in file_system_monitoring ----------------
+            store_file_event(evt)
 
-                anomaly_flag = is_sensitive(path) or freq_anomaly
-                if anomaly_flag:
-                    LOG.info(
-                        "[FSM anomaly] dir=%s event=%s sensitive=%s freq=%s",
-                        path,
-                        evt["metrics"].get("event_type", "NA"),
-                        is_sensitive(path),
-                        freq_count,
-                    )
+            # ---------------- build anomaly packet ----------------
+            if anomaly_flag:
+                mapped_event_name = event_name_mapping.get(etype, "NA")
 
-                # Log all file events (keeps raw event_type: created/modified/deleted/moved)
-                store_file_event(evt)
+                # fix override for move INTO sensitive folder
+                if special_moved_to_sensitive:
+                    mapped_event_name = "FILE_CREATED"
+                    event_reason = "File appeared in sensitive directory via move"
+                elif sensitive_hit:
+                    event_reason = f"{mapped_event_name} detected in sensitive directory"
+                else:
+                    event_reason = f"Frequency anomaly: {freq_count} accesses in {FREQ_WINDOW}s"
 
-                if anomaly_flag:
-                    raw_event_type = evt["metrics"].get("event_type", "NA")
-                    mapped_event_name = event_name_mapping.get(raw_event_type, "NA")
+                # ---------------- ensure operation_type ALWAYS exists ----------------
+                operation_type = etype
 
-                    anomaly = {
-                        "msg_id": "UEBA_SIEM_FILE_SYS_MONI_MSG",
-                        "event_type": "FILE_AND_OBJECT_ACCESS_EVENTS",
-                        # anomalies_log.event_subtype will show FILE_WRITE / FILE_DELETE etc.
-                        "event_name": mapped_event_name,
-                        # "event_reason": f"{mapped_event_name} detected in sensitive directory",
-                        "event_reason": rule_reason or (
-                            f"{mapped_event_name} detected in sensitive directory" if is_sensitive(path)
-                            else f"Frequency anomaly: {freq_count} accesses in {FREQ_WINDOW}s"
-                        ),
-                        "timestamp": evt.get("timestamp"),
-                        "log_text": json.dumps(evt, default=str),
-                        "severity": "ALERT",
-                        "username": evt.get("username"),
-                        "device_hostname": evt["metrics"].get("hostname"),
-                        "device_mac_id": evt["metrics"].get("mac_address"),
-                        "file_name": evt["metrics"].get("file_name", "N/A"),
-                        "file_path": path,
-                        # keep raw value for reference
-                        # "operation_type": raw_event_type,
-                        "frequency_count": freq_count,
-                    }
+                anomaly = {
+                    "msg_id": "UEBA_SIEM_FILE_SYS_MONI_MSG",
+                    "event_type": "FILE_AND_OBJECT_ACCESS_EVENTS",
+                    "event_name": mapped_event_name,
+                    "event_reason": event_reason,
+                    "timestamp": evt.get("timestamp"),
 
-                    try:
-                        store_anomaly_to_database_and_siem(anomaly)
-                        
-                        siem_packet = build_file_sys_moni_packet(anomaly)
-                        store_siem_ready_packet(asdict(siem_packet))
-                    except Exception as e:
-                        LOG.error(f"Failed to process file anomaly: {e}")
+                    "log_text": json.dumps(evt, default=str),
+                    "severity": "ALERT",
 
+                    "username": evt.get("username"),
+                    "device_hostname": evt["metrics"].get("hostname"),
+                    "device_mac_id": evt["metrics"].get("mac_address"),
+
+                    "file_name": evt["metrics"].get("file_name", "N/A"),
+                    "file_path": path,
+
+                    "frequency_count": freq_count,
+                    "operation_type": operation_type,   # ✅ always set
+                }
+
+                try:
+                    # store anomaly to DB & SIEM (your helper functions)
+                    store_anomaly_to_database_and_siem(anomaly)
+
+                    siem_packet = build_file_sys_moni_packet(anomaly)
+                    store_siem_ready_packet(asdict(siem_packet))
+
+                except Exception as e:
+                    LOG.error(f"Failed to process file anomaly: {e}")
 
     except KeyboardInterrupt:
         print("\nConsumer stopped by user.")
@@ -223,6 +371,7 @@ def main(stop_event=None):
     finally:
         sock.close()
         LOG.info("UDP consumer closed.")
+
 
 
 if __name__ == "__main__":

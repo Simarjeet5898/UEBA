@@ -31,6 +31,8 @@ from kafka_producer.file_sys_monitoring_producer_udp import main as file_sys_mai
 from kafka_producer.login_events_producer_udp import main as login_events_main
 from kafka_producer.system_monitor_producer_udp import main as system_monitor_main
 
+from kafka_producer.privilege_user_monitoring_producer_udp import main as privileged_user_monitoring_main
+
 
 ## Added by simar
 from kafka_producer.login_events_producer_udp import handle_shutdown_signal 
@@ -50,36 +52,6 @@ def run_producer(name, target):
 stop_event = threading.Event()
 shutdown_requested = threading.Event()
 
-
-# def handle_exit(signum, frame):
-#     print("\n[UEBA Client] Shutting down all producers...")
-#     stop_event.set()
-#     sys.exit(0)
-
-
-# def handle_exit(signum, frame):
-#     print("\n[UEBA Client] Shutting down all producers...")
-#     stop_event.set()   # add this line
-
-#     # Send logout event
-#     try:
-#         handle_shutdown_signal(exit_after=False)
-#     except Exception as e:
-#         print(f"[UEBA Client] Failed to flush login_events logout: {e}")
-
-#     # Send inactive heartbeat
-#     try:
-#         send_shutdown()
-#     except Exception as e:
-#         print(f"[UEBA Client] Failed to send shutdown heartbeat: {e}")
-
-#     # Give a moment for UDP packets to leave before hard exit
-#     time.sleep(1)
-#     os._exit(0)
-
-# def handle_exit(signum, frame):
-#     # only mark shutdown, no heavy work inside signal handler
-#     shutdown_requested.set()
 
 def handle_exit(signum, frame):
     stop_event.set()            # stop producers
@@ -124,6 +96,7 @@ def main():
         "SystemMonitorProducer": system_monitor_main,
         # "HeartbeatProducer": send_heartbeat,
         "HeartbeatProducer": lambda: send_heartbeat(stop_event),
+        "PrivilegedUserMonitoringProducer": privileged_user_monitoring_main,
     }
 
     for name, func in producers.items():
