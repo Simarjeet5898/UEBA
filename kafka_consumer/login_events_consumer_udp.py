@@ -33,41 +33,16 @@ Date: []
 """
 
 import json
-# import time
 import logging
 LOG = logging.getLogger("Login Events Consumer")
 import psycopg2
-# from kafka import KafkaConsumer
+
 import socket
 
 from datetime import datetime, timedelta
-from helper import store_anomaly_to_database_and_siem,ensure_raw_analysis_log_exists
-# import pandas as pd
-# from hdbscan import approximate_predict
-# import os
-# import joblib
-from helper import build_abnormal_login_logout_packet, store_siem_ready_packet
+from helper import store_anomaly_to_database_and_siem
+from helper import build_abnormal_login_logout_packet, store_siem_ready_packet, build_anomalous_user_session_packet
 from dataclasses import asdict
-
-# model = joblib.load("ai_models/abnormal_login_model.pkl") 
-
-# model_dir = "ai_models/user_session_tracking_ai_models"
-# user_session_model = joblib.load(os.path.join(model_dir, "best_hdbscan_model.pkl"))
-# scaler = joblib.load(os.path.join(model_dir, "hdbscan_scaler.pkl"))
-
-# model = joblib.load("ai_models/abnormal_login_model_kaggle_dataset.pkl") 
-
-# === Logging Setup ===
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(levelname)s - %(message)s',
-#     handlers=[
-#         logging.FileHandler("login_events_consumer.log"),
-#         logging.StreamHandler()
-#     ]
-# )
-
-
 
 # === UDP Setup ===
 CONFIG_PATH = "/home/config.json"
@@ -149,12 +124,13 @@ def get_login_logout_baseline():
     print(f"[CONFIG] Using default baseline window: {DEFAULT_BASELINE['login_window']}")
     return DEFAULT_BASELINE
 
+
 def user_session_data(event):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
-        # 1. Create table if not exists
+        # 1. Create table if not exists (original + snapshot_date)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_session_tracking (
                 id SERIAL PRIMARY KEY,
@@ -175,48 +151,280 @@ def user_session_data(event):
                 public_ip TEXT,
                 geo_country TEXT,
                 geo_region TEXT,
-                geo_city TEXT
+                geo_city TEXT,
+                snapshot_date DATE
             );
         """)
 
-        # 2. Insert event
-        cur.execute(
-            """
-            INSERT INTO user_session_tracking 
-            (timestamp, username, event_type, login_time, logout_time, session_duration_seconds,
-             last_login_time, hostname, source_os, remote_ip, lan_ip, auth_type, active_mac, mac_addresses,
-             public_ip, geo_country, geo_region, geo_city)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                event.get("timestamp"),
-                event.get("username"),
-                event.get("event_type"),
-                event.get("login_time"),
-                event.get("logout_time"),
-                event.get("session_duration_seconds"),
-                event.get("last_login_time"),
-                event.get("hostname"),
-                event.get("source_os"),
-                event.get("remote_ip", "Unknown"),
-                event.get("lan_ip", "Unknown"),
-                event.get("auth_type", "local"),
-                event.get("active_mac", "Unknown"),
-                json.dumps(event.get("mac_addresses", [])),  # stored as JSON string
-                event.get("public_ip", "Unknown"),
-                event.get("geo_country", "Unknown"),
-                event.get("geo_region", "Unknown"),
-                event.get("geo_city", "Unknown")
-            )
-        )
+        username = event.get("username")
+        hostname = event.get("hostname")
+        now_date = datetime.now().date()
+
+        login_time  = event.get("login_time")
+        logout_time = event.get("logout_time")
+        duration    = event.get("session_duration_seconds")
+
+        # -----------------------------------------------------
+        # STEP 1 — CHECK if a row already exists for today
+        # -----------------------------------------------------
+        cur.execute("""
+            SELECT id FROM user_session_tracking
+            WHERE username = %s
+              AND hostname = %s
+              AND snapshot_date = %s
+            ORDER BY id DESC LIMIT 1;
+        """, (username, hostname, now_date))
+
+        existing_row = cur.fetchone()
+
+        # -----------------------------------------------------
+        # STEP 2 — LOGIN event
+        # -----------------------------------------------------
+        if event.get("event_type") == "login":
+
+            if existing_row:
+                # --> UPDATE same row (reset session)
+                cur.execute("""
+                    UPDATE user_session_tracking
+                    SET 
+                        timestamp = %s,
+                        event_type = 'login',
+                        login_time = %s,
+                        logout_time = NULL,
+                        session_duration_seconds = NULL,
+                        last_login_time = %s,
+                        source_os = %s,
+                        remote_ip = %s,
+                        lan_ip = %s,
+                        auth_type = %s,
+                        active_mac = %s,
+                        mac_addresses = %s,
+                        public_ip = %s,
+                        geo_country = %s,
+                        geo_region = %s,
+                        geo_city = %s
+                    WHERE id = %s;
+                """, (
+                    event.get("timestamp"),
+                    login_time,
+                    event.get("last_login_time"),
+                    event.get("source_os"),
+                    event.get("remote_ip", "Unknown"),
+                    event.get("lan_ip", "Unknown"),
+                    event.get("auth_type", "local"),
+                    event.get("active_mac", "Unknown"),
+                    json.dumps(event.get("mac_addresses", [])),
+                    event.get("public_ip", "Unknown"),
+                    event.get("geo_country", "Unknown"),
+                    event.get("geo_region", "Unknown"),
+                    event.get("geo_city", "Unknown"),
+                    existing_row[0]
+                ))
+
+            else:
+                # --> INSERT NEW ROW for today's first login
+                cur.execute("""
+                    INSERT INTO user_session_tracking
+                    (timestamp, username, event_type, login_time, logout_time,
+                     session_duration_seconds, last_login_time, hostname,
+                     source_os, remote_ip, lan_ip, auth_type, active_mac,
+                     mac_addresses, public_ip, geo_country, geo_region,
+                     geo_city, snapshot_date)
+                    VALUES (%s, %s, 'login', %s, NULL,
+                            NULL, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s);
+                """, (
+                    event.get("timestamp"),
+                    username,
+                    login_time,
+                    event.get("last_login_time"),
+                    hostname,
+                    event.get("source_os"),
+                    event.get("remote_ip", "Unknown"),
+                    event.get("lan_ip", "Unknown"),
+                    event.get("auth_type", "local"),
+                    event.get("active_mac", "Unknown"),
+                    json.dumps(event.get("mac_addresses", [])),
+                    event.get("public_ip", "Unknown"),
+                    event.get("geo_country", "Unknown"),
+                    event.get("geo_region", "Unknown"),
+                    event.get("geo_city", "Unknown"),
+                    now_date
+                ))
+
+        # -----------------------------------------------------
+        # STEP 3 — LOGOUT event
+        # -----------------------------------------------------
+        elif event.get("event_type") == "logout":
+
+            cur.execute("""
+                UPDATE user_session_tracking
+                SET 
+                    logout_time = %s,
+                    session_duration_seconds = %s,
+                    event_type = 'logout'
+                WHERE id = (
+                    SELECT id FROM user_session_tracking
+                    WHERE username = %s
+                      AND hostname = %s
+                      AND snapshot_date = %s
+                    ORDER BY id DESC LIMIT 1
+                );
+            """, (
+                logout_time,
+                duration,
+                username,
+                hostname,
+                now_date
+            ))
 
         conn.commit()
         cur.close()
         conn.close()
-        LOG.info("Stored login event to USER Session Tracking Table.")
-    except Exception as e:
-        LOG.error(f"USER Session Tracking Table insert error: {e}")
 
+    except Exception as e:
+        LOG.error(f"USER Session Tracking Table insert/update error: {e}")
+
+
+def detect_anomalous_user_session(event, user_baseline):
+    """
+    UEBA_025 — Rule-Based Anomalous User Session Detection
+    ------------------------------------------------------
+    This checks completed user sessions (logout events) for anomalies:
+    - Abnormal session duration
+    - Login outside usual time window
+    - IP address abnormality
+    - Weekend/Holiday activity
+    - Too many short sessions in one day
+    """
+
+    # Only process full sessions (logout events)
+    if event.get("event_type") != "logout":
+        return
+
+    username = event.get("username")
+    hostname = event.get("hostname")
+    logout_time = event.get("logout_time")
+    login_time = event.get("login_time")
+    session_duration = event.get("session_duration_seconds")
+
+    if not login_time or not logout_time or not session_duration:
+        return
+
+    ts = datetime.fromisoformat(logout_time)
+    hour = ts.hour
+    date_str = logout_time.split(" ")[0]
+    day_of_week = ts.weekday()
+    user_ip = event.get("remote_ip", "")
+
+    reasons = []
+    risk_score = 0
+
+    # -------------------------------------------------------
+    # 1. LOGIN WINDOW CHECK
+    # -------------------------------------------------------
+    login_window = user_baseline.get("login_window", (9, 18))
+    if not (login_window[0] <= hour <= login_window[1]):
+        reasons.append(f"Session ended at unusual hour: {hour} (baseline {login_window})")
+        risk_score += 3
+
+    # -------------------------------------------------------
+    # 2. SESSION DURATION CHECKS
+    # -------------------------------------------------------
+    typical_durations = user_baseline.get("session_durations", [28800, 32400])
+    avg = sum(typical_durations) / len(typical_durations)
+
+    # Too short (e.g., <10min)
+    if session_duration < 600:
+        reasons.append(f"Very short session ({session_duration}s)")
+        risk_score += 2
+
+    # Too long (e.g., > 2hr deviation)
+    if abs(session_duration - avg) > 7200:
+        reasons.append(
+            f"Session duration {session_duration}s deviates significantly from average {int(avg)}s"
+        )
+        risk_score += 2
+
+    # -------------------------------------------------------
+    # 3. WEEKEND / HOLIDAY SESSION
+    # -------------------------------------------------------
+    holidays = user_baseline.get("holidays", [])
+    if day_of_week == 6 or date_str in holidays:
+        reasons.append("Session during weekend/holiday")
+        risk_score += 4
+
+    # -------------------------------------------------------
+    # 4. IP ADDRESS ABNORMALITY
+    # -------------------------------------------------------
+    allowed_ips = user_baseline.get("allowed_ips", [])
+    if allowed_ips and not any(user_ip.startswith(prefix) for prefix in allowed_ips):
+        reasons.append(f"Unusual session IP: {user_ip}")
+        risk_score += 4
+
+    # -------------------------------------------------------
+    # 5. TOO MANY SHORT SESSIONS IN SAME DAY (optional rule)
+    # -------------------------------------------------------
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM user_session_tracking
+            WHERE username = %s
+              AND snapshot_date = %s
+              AND session_duration_seconds IS NOT NULL
+              AND session_duration_seconds < 600;
+        """, (username, ts.date()))
+        
+        (short_count,) = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if short_count >= 3:
+            reasons.append(f"Multiple short sessions detected today ({short_count})")
+            risk_score += 3
+
+    except Exception as e:
+        LOG.error(f"[AnomalousUserSession] DB lookup failed: {e}")
+
+    # -------------------------------------------------------
+    # FINAL DECISION
+    # -------------------------------------------------------
+    if not reasons:
+        return  # no anomaly
+
+    if risk_score < 3:
+        return  # below threshold
+
+    # Create anomaly object
+    anomaly = {
+        "msg_id": "UEBA_SIEM_ANOMALOUS_USER_SESSION_MSG",
+        "event_type": "BEHAVIORAL_EVENTS",
+        "event_name": "ANOMALOUS_USER_SESSION_DETECTION",
+        "event_reason": "; ".join(reasons),
+        "timestamp": event.get("timestamp"),
+        "log_text": json.dumps(event),
+        "severity": "ALERT",
+        "session_duration": float(session_duration),
+        "attacker_ip_address": user_ip,
+        "attacker_username": username,
+        "device_hostname": hostname,
+        "device_username": username,
+        "device_ip_add": user_ip,
+        "device_mac_id": event.get("active_mac", "Unknown"),
+        "device_type": event.get("source_os", "Unknown"),
+    }
+
+    # Store in anomalies DB + SIEM
+    store_anomaly_to_database_and_siem(anomaly)
+
+    # Build SIEM packet
+    siem_packet = build_anomalous_user_session_packet(anomaly)
+    store_siem_ready_packet(asdict(siem_packet))
+
+    LOG.warning(f"[ANOMALOUS USER SESSION] {username} -> {anomaly['event_reason']}")
 
 
 def detect_abnormal_login_logout(event, user_baseline):
@@ -273,11 +481,16 @@ def detect_abnormal_login_logout(event, user_baseline):
 
         ANOMALY_RISK_THRESHOLD = 2
         if risk_score >= ANOMALY_RISK_THRESHOLD:
+            if action_type == "LOGIN":
+                event_name = "ABNORMAL_LOGIN"
+            else:
+                event_name = "ABNORMAL_LOGOUT"
             anomaly = {
                 "msg_id": "UEBA_SIEM_ABNORMAL_LOGIN_LOGOUT_TIME_MSG",
-                "event_type": "AUTHENTICATION_EVENTS",
+                "event_type": "BEHAVIORAL_EVENTS",
+                "event_name": event_name,
                 # "event_name": f"ABNORMAL_{action_type}",
-                "event_name": "ABNORMAL_LOGIN",
+                # "event_name": "ABNORMAL_LOGIN",
                 "event_reason": f"Abnormal {action_type.lower()} detected",
                 "timestamp": event["timestamp"],
                 "log_text": json.dumps(event),
@@ -424,8 +637,8 @@ def get_statistical_baseline(username, min_samples=10):
 
 # def main():
 def main(stop_event=None):
-    print("\033[1;32m  !!!!!!!!!!!Login Events consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
-    LOG.info("!!!!!!!!!!! Login Events consumer started (UDP) !!!!!!!!!!!")
+    print("\033[1;32m  !!!!!!!!!!!  Login Events consumer running (UDP)  !!!!!!!!!!!!!!\033[0m")
+    LOG.info("!!!!!!!!!!! Login Events consumer running (UDP) !!!!!!!!!!!")
     
     # ensure_raw_analysis_log_exists()
     try:
@@ -451,7 +664,8 @@ def main(stop_event=None):
             # user_baseline = get_login_logout_baseline()
             user_baseline = get_statistical_baseline(event.get("username"))
             detect_abnormal_login_logout(event, user_baseline)
-            # detect_abnormal_login_logout(event, DEFAULT_BASELINE)
+            detect_anomalous_user_session(event, user_baseline)
+
             detect_dormant_account(event)
             # detect_brute_force(event)
 

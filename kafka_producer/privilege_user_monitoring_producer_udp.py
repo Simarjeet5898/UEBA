@@ -381,7 +381,7 @@ class PrivilegedEventMonitor:
         # ---- Collect command executions from all privileged users ----
         try:
             cmd_entries = get_all_privileged_command_executions(current_users) or []
-            print(f"[DEBUG] Collected {len(cmd_entries)} privileged command entries")
+            # print(f"[DEBUG] Collected {len(cmd_entries)} privileged command entries")
         except Exception as e:
             cmd_entries = []
             print(f"[ERROR] get_all_privileged_command_executions() failed: {e}")
@@ -416,8 +416,8 @@ class PrivilegedEventMonitor:
         self.priv_meta   = loaded.get("metadata", {})
         self.unique_ids  = loaded.get("unique_identifiers", [])
 
-        print(f"[DEBUG] Updated privileged users: {self.priv_users}")
-        print(f"[DEBUG] Total events this cycle: {len(events)}")
+        # print(f"[DEBUG] Updated privileged users: {self.priv_users}")
+        # print(f"[DEBUG] Total events this cycle: {len(events)}")
         return events
 
 
@@ -449,7 +449,7 @@ def main():
     while True:
         events = monitor.poll_events()     # no logic for now
         payload = monitor.build_payload(events)
-        print(f"[DEBUG] Sending payload with {len(events)} events at {datetime.now().isoformat()}")
+        # print(f"[DEBUG] Sending payload with {len(events)} events at {datetime.now().isoformat()}")
 
         monitor.send_payload(payload)
         time.sleep(5)

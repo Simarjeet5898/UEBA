@@ -70,7 +70,9 @@ def udp_listener(stop_event: threading.Event):
     except Exception:
         pass
 
-    print(f"[Dispatcher] Listening on {UDP_IP}:{UDP_PORT}")
+    # print(f"[Dispatcher] Listening on {UDP_IP}:{UDP_PORT}")
+    print(f"\033[91m[Dispatcher] Listening on {UDP_IP}:{UDP_PORT}\033[0m")
+
 
     try:
         while not stop_event.is_set():
@@ -88,8 +90,8 @@ def udp_listener(stop_event: threading.Event):
             if LOG_PAYLOADS:
                 try:
                     obj = json.loads(data.decode("utf-8", errors="ignore"))
-                    print(f"[Dispatcher] Received {len(data)} bytes from {addr}")
-                    print(json.dumps(obj, indent=2)[:2000])
+                    # print(f"[Dispatcher] Received {len(data)} bytes from {addr}")
+                    # print(json.dumps(obj, indent=2)[:2000])
                 except Exception:
                     print(f"[Dispatcher] Received {len(data)} bytes from {addr}")
             else:
@@ -99,8 +101,8 @@ def udp_listener(stop_event: threading.Event):
             for name, port in CONSUMER_PORTS.items():
                 try:
                     send_sock.sendto(data, (UDP_IP, port))
-                    if LOG_FANOUT:
-                        print(f"[Dispatcher] Forwarded -> {name} @ {UDP_IP}:{port}")
+                    # if LOG_FANOUT:
+                    #     print(f"[Dispatcher] Forwarded -> {name} @ {UDP_IP}:{port}")
                 except Exception as se:
                     print(f"[Dispatcher] Send error to {name}@{UDP_IP}:{port} -> {se}")
 

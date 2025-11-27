@@ -458,8 +458,8 @@ def detect_command_deviation(user_id, command, baseline):
 
 
 def main(stop_event=None):
-    print("\033[1;92m!!!!!!!!! SRU Consumer Running (UDP) !!!!!!\033[0m")
-    LOG.info("!!!!!!!!! SRU Consumer Running (UDP) !!!!!!")
+    print("\033[1;92m!!!!!!!!! System Resource Utilization Consumer Running (UDP) !!!!!!\033[0m")
+    LOG.info("!!!!!!!!! System Resource Utilization Consumer Running (UDP) !!!!!!")
 
     while not (stop_event and stop_event.is_set()):
         data, addr = sock.recvfrom(65535)

@@ -32,16 +32,11 @@ sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind((UDP_IP, UDP_PORT))
 
 
-# FAILED_LOGIN_TIME_WINDOW = 60  # seconds
-# FAILED_LOGIN_THRESHOLD = 3     # how many failures trigger anomaly
+FAILED_LOGIN_TRACKER = defaultdict(lambda: deque())  # tracks timestamps of failed logins
+FAILED_LOGIN_TIME_WINDOW = 60  # seconds
+FAILED_LOGIN_THRESHOLD = 3     # how many failures trigger anomaly
 
-FAILED_LOGIN_TIME_WINDOW = config["FAILED_LOGIN_TIME_WINDOW"]  # seconds
-FAILED_LOGIN_THRESHOLD = config["FAILED_LOGIN_THRESHOLD"]     # how many failures trigger anomaly
-
-FAILED_LOGIN_TRACKER = defaultdict(lambda: deque())  # key = username
-FAILED_LOGIN_STATE   = defaultdict(int)              # total failed attempts per username
-
-BRUTE_FORCE_ACTIVE = defaultdict(bool)
+FAILED_LOGIN_STATE = defaultdict(int)
 
 # key = hash of event, value = timestamp of last store
 anomaly_cache = {}
@@ -56,33 +51,7 @@ DB_CONFIG = {
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# REGISTRY_FILE = os.path.join(HERE, 'client_registry.json')
-
-def init_db():
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS authentication_log (
-                id SERIAL PRIMARY KEY,
-                timestamp TEXT,
-                event_type TEXT,
-                username TEXT,
-                source_ip TEXT,
-                source_hostname TEXT,
-                method TEXT,
-                reason TEXT,
-                creator TEXT,
-                extra_data JSONB
-            );
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
-        # print("Authentication table created (if not exists).")
-    except Exception as e:
-        print(f"DB Init error: {e}")
-
+REGISTRY_FILE = os.path.join(HERE, 'client_registry.json')
 
 def insert_authentication_event(event):
     try:
@@ -130,6 +99,27 @@ def insert_authentication_event(event):
         LOG.error("Authentication Table insert error: %s", e)
 
 
+def load_registry():
+    """Load the client registry from JSON file."""
+    try:
+        with open(REGISTRY_FILE, 'r') as f:
+            registry = json.load(f)
+        # print(f"Successfully loaded registry with {len(registry)} clients")
+        return registry
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading registry: {e}")
+        return {}
+
+# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# sys.path.append(project_root)
+
+# # Load configuration
+# config_path = os.path.join(project_root, 'config', 'config.json')
+# config = load_config(config_path)
+
+# if not config:
+#     print("Exiting due to configuration error.")
+#     exit()
 
 # Extract destinations from config
 destinations = config["destinations"]
@@ -224,6 +214,74 @@ ANOMALY_CATEGORIES = {
 }
 
 
+
+def detect_usb_anomalies(metrics):
+    """Detect USB device anomalies using the registry."""
+    anomalies = []
+    
+    mac = metrics.get('mac_address')
+    if not mac:
+        print("No MAC address in metrics")
+        return anomalies
+    
+    # Load client registry
+    registry = load_registry()
+    
+    # Get client data for this MAC
+    client_data = registry.get(mac, {})
+    
+    if not client_data:
+        # print(f"Warning: No registry entry found for MAC {mac}")
+        # print(f"Available MACs in registry: {list(registry.keys())}")
+        return anomalies
+    
+    # Get registered USB devices for this MAC
+    registered_usb_devices = set()
+    usb_devices_list = client_data.get('usb_devices', [])
+    
+    for device in usb_devices_list:
+        if isinstance(device, dict) and 'device_id' in device:
+            registered_usb_devices.add(device['device_id'])
+    
+    # Get current USB devices from metrics
+    current_devices = metrics.get('devices', [])
+    current_usb_devices = set()
+    
+    for device in current_devices:
+        if isinstance(device, dict) and device.get('device_id'):
+            current_usb_devices.add(device['device_id'])
+    
+    # Debug output
+    print(f"MAC: {mac}")
+    print(f"Registered USB devices: {registered_usb_devices}")
+    print(f"Current USB devices: {current_usb_devices}")
+    
+    # Find new USB devices
+    new_usb_devices = current_usb_devices - registered_usb_devices
+    print(f"New USB devices detected: {new_usb_devices}")
+    
+    if new_usb_devices:
+        # Get device details for the new devices
+        new_device_details = []
+        for device in current_devices:
+            if device.get('device_id') in new_usb_devices:
+                new_device_details.append(device)
+        
+        device_names = [d.get('name', d.get('device_id')) for d in new_device_details]
+        
+        event_info = ANOMALY_CATEGORIES["unauthorized_usb_device"]
+        anomalies.append({
+            "Event Type": event_info["Event Type"],
+            "Event Sub Type": event_info["Event Sub Type"],
+            "Event Details": f"{event_info['Event Details']}: {', '.join(device_names)}",
+            "Value": list(new_usb_devices)
+        })
+        print(f"USB ANOMALY DETECTED: {device_names}")
+    else:
+        print("No new USB devices detected")
+    
+    return anomalies
+
 #newly function added to remove duplicate reverse shell detection
 REVERSE_SHELL_CACHE: dict[tuple, float] = {}
 REVERSE_SHELL_TTL = 300          # seconds to suppress duplicates
@@ -244,47 +302,264 @@ def is_new_reverse_shell(evt: dict) -> bool:
     return False
 # end here
 
+# def detect_login_anomalies(metrics):
+#     """Detect anomalies in login and system activity."""
+#     anomalies = []
 
-def send_user_account_event_to_siem(event_type: str, username: str, metrics: dict, reason: str):
-    """
-    Common function to send USER_CREATION / USER_MODIFICATION / USER_DELETION
-    events to SIEM.
-    """
+#     # Successful GUI login
+#     login_time = metrics.get("login_time")
+#     if login_time:
+#         anomalies.append({
+#             "Event Type": "AUTHENTICATION_EVENTS",
+#             "Event Sub Type": "SUCCESSFUL_LOGIN",
+#             "Event Details": f"Local GUI login at {login_time}",
+#             "Value": login_time
+#         })
 
-    # Extract IP
-    remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
-    if isinstance(remote_ip, list):
-        source_ip = remote_ip[0] if remote_ip else "Unknown"
-    elif isinstance(remote_ip, str):
-        source_ip = remote_ip
-    else:
-        source_ip = "Unknown"
+#     remote_ip_raw = metrics.get("remote_ip", [])
+#     remote_ip = []
 
-    # Extract hostname
-    hostname = metrics.get("hostname")
-    if isinstance(hostname, dict):
-        hostname = hostname.get("name") or json.dumps(hostname)
-    elif not isinstance(hostname, str):
-        hostname = "Unknown"
+#     # Normalize to list of IP strings
+#     if isinstance(remote_ip_raw, dict):
+#         remote_ip = list(remote_ip_raw.values())
+#     elif isinstance(remote_ip_raw, list):
+#         remote_ip = remote_ip_raw
+#     elif isinstance(remote_ip_raw, str):
+#         remote_ip = [remote_ip_raw]
 
-    anomaly = {
-        "timestamp": metrics.get("timestamp"),
-        "event_type": "USER_ACTIVITY_EVENTS",
-        "event_name": event_type,
-        "username": username,
-        "source_ip": str(source_ip),
-        "source_hostname": hostname,
-        "method": "USER_ACCOUNT_EVENT",
-        "event_reason": reason,
-        # "reason": reason,
-        "creator": metrics.get("creator", "System"),
-        # "extra_data": {}
-        "extra_data": json.dumps({})
+#     if remote_ip:
+#         authorized = []
+#         unauthorized = []
+#         # authorized_network = ipaddress.ip_network(AUTHORIZED_SUBNETS)
+#         authorized_network = [ipaddress.ip_network(subnet) for subnet in AUTHORIZED_SUBNETS]
+#         for ip in remote_ip:
+#             if not ip or ip == "Unknown":
+#                 continue
+#             try:
+#                 ip_obj = ipaddress.ip_address(ip)
+#                 # if ip_obj.is_loopback or ip_obj.is_private or (ip_obj in authorized_network):
+#                 if ip_obj.is_loopback or ip_obj.is_private or any(ip_obj in net for net in authorized_network):
+#                     authorized.append(ip)
+#                 else:
+#                     unauthorized.append(ip)
+#             except ValueError:
+#                 unauthorized.append(ip)
 
-    }
+#         if unauthorized:
+#             event_info = ANOMALY_CATEGORIES["unauthorized_remote_access"]
+#             anomalies.append({
+#                 "Event Type": event_info["Event Type"],
+#                 "Event Sub Type": event_info["Event Sub Type"],
+#                 "Event Details": event_info["Event Details"],
+#                 "Value": unauthorized
+#             })
 
-    store_anomaly_to_database_and_siem(anomaly)
+#     # USB device anomalies
+#     usb_anomalies = detect_usb_anomalies(metrics)
+#     anomalies.extend(usb_anomalies)
 
+#     # Excessive cron jobs
+#     cron_count = metrics.get("num_cron_jobs")
+#     if isinstance(cron_count, int) and cron_count > THRESHOLDS.get("max_cron_jobs", 10):
+#         event_info = ANOMALY_CATEGORIES["excessive_cron_jobs"]
+#         anomalies.append({
+#             "Event Type": event_info["Event Type"],
+#             "Event Sub Type": event_info["Event Sub Type"],
+#             "Event Details": event_info["Event Details"],
+#             "Value": cron_count
+#         })
+
+#     # Sudo failure anomalies
+#     sudo_data = metrics.get("sudo_failures")
+#     if sudo_data and isinstance(sudo_data, (list, tuple)) and len(sudo_data) == 3:
+#         sudo_time, sudo_failures, sudo_cmd = sudo_data
+#         if sudo_failures > THRESHOLDS.get("sudo_failures", 0):
+#             event_info = ANOMALY_CATEGORIES["sudo_failures"]
+#             anomalies.append({
+#                 "Event Type": event_info["Event Type"],
+#                 "Event Sub Type": event_info["Event Sub Type"],
+#                 "Event Details": f"Excessive sudo failures: {sudo_cmd} at {sudo_time}",
+#                 "Value": sudo_failures
+#             })
+
+#     # Check for unauthorized or suspicious privilege escalation attempts add by kamlesh and it is a new_sacc
+#     escalation_events = metrics.get("privilege_escalation_attempts", [])
+#     if escalation_events and isinstance(escalation_events, list):
+#         for event in escalation_events:
+#             user = event.get("user", "unknown")
+#             time_str = event.get("time", "unknown")
+#             command = event.get("command", "unknown")
+#             status = event.get("status", "unknown")
+#             ip_address = event.get("IP_addr","unknown")
+    
+#             event_info = ANOMALY_CATEGORIES["privilege_esclation"]
+#             anomalies.append({
+#                 "Event Type": event_info["Event Type"],
+#                 "Event Sub Type": event_info["Event Sub Type"],
+#                 "Event Details": f"{event_info['Event Details']} by {user} — Status: {status} — Command: {command}",
+#                 "Value": time_str
+#             })
+            
+#     reverse_shells = metrics.get("reverse_shell_events", [])
+#     if reverse_shells and isinstance(reverse_shells, list):
+#         for shell in reverse_shells:
+#             if not is_new_reverse_shell(shell):
+#                 continue                           # skip duplicates
+
+#             info = ANOMALY_CATEGORIES["reverse_shell"]
+#             anomalies.append({
+#                 "Event Type":  info["Event Type"],
+#                 "Event Sub Type": info["Event Sub Type"],
+#                 "Event Details": (
+#                     f"{info['Event Details']} by {shell.get('user','?')} "
+#                     f"PID:{shell.get('pid','?')} "
+#                     f"Remote:{shell.get('remote','?')} "
+#                     f"Cmd:{shell.get('cmdline','?')}"
+#                 ),
+#                 "Value": shell.get("timestamp","unknown")
+#             })
+
+#     # Failed login and UEBA_3 non-AI checks
+#         failed_logins = metrics.get("failed_logins") or 0
+#         MIN_FAILED_LOGIN_THRESHOLD = 3  # adjust as needed
+
+#         # if failed_logins > 0:
+#         #     mac = metrics.get("mac_address", "unknown")
+#         #     FAILED_LOGIN_STATE[mac] += failed_logins
+
+#         #     if FAILED_LOGIN_STATE[mac] >= MIN_FAILED_LOGIN_THRESHOLD:
+#         #         anomalies.append({
+#         #             "Event Type": ANOMALY_CATEGORIES["failed_login"]["Event Type"],
+#         #             "Event Sub Type": ANOMALY_CATEGORIES["failed_login"]["Event Sub Type"],
+#         #             "Event Details": f"{FAILED_LOGIN_STATE[mac]} failed login attempt(s) detected",
+#         #             "Value": FAILED_LOGIN_STATE[mac]
+#         #         })
+#         if failed_logins > 0:
+#             mac = metrics.get("mac_address", "unknown")
+#             now = time.time()
+
+#             # Track timestamps in sliding window
+#             tracker = FAILED_LOGIN_TRACKER[mac]
+#             tracker.append(now)
+
+#             # Remove old entries outside the time window
+#             while tracker and (now - tracker[0] > FAILED_LOGIN_TIME_WINDOW):
+#                 tracker.popleft()
+
+#             # Only log to anomalies if threshold is crossed
+#             if len(tracker) >= FAILED_LOGIN_THRESHOLD:
+#                 anomalies.append({
+#                     "Event Type": ANOMALY_CATEGORIES["brute_force"]["Event Type"],
+#                     "Event Sub Type": ANOMALY_CATEGORIES["brute_force"]["Event Sub Type"],
+#                     "Event Details": ANOMALY_CATEGORIES["brute_force"]["Event Details"],
+#                     "Value": len(tracker)
+#                 })
+
+
+#         # Brute force detection & reset
+#         if FAILED_LOGIN_STATE[mac] > 3:
+#             anomalies.append({
+#                 "Event Type": ANOMALY_CATEGORIES["brute_force"]["Event Type"],
+#                 "Event Sub Type": ANOMALY_CATEGORIES["brute_force"]["Event Sub Type"],
+#                 "Event Details": ANOMALY_CATEGORIES["brute_force"]["Event Details"],
+#                 "Value": FAILED_LOGIN_STATE[mac]
+#             })
+#             FAILED_LOGIN_STATE[mac] = 0
+
+#         # Per-user velocity
+#         failed_by_user = metrics.get("failed_logins_by_user", {})
+#         for user, cnt in failed_by_user.items():
+#             if cnt >= USER_FAIL_THRESHOLD:
+#                 anomalies.append({
+#                     "Event Type": "AUTHENTICATION_EVENTS",
+#                     "Event Sub Type": "HIGH_VELOCITY_FAILED_LOGINS_BY_USER",
+#                     "Event Details": f"{cnt} failed attempts for user {user}",
+#                     "Value": {"username": user, "count": cnt}
+#                 })
+
+#         # Per-IP velocity
+#         failed_by_ip = metrics.get("failed_logins_by_ip", {})
+#         for ip, cnt in failed_by_ip.items():
+#             if cnt >= IP_FAIL_THRESHOLD:
+#                 anomalies.append({
+#                     "Event Type": "AUTHENTICATION_EVENTS",
+#                     "Event Sub Type": "HIGH_VELOCITY_FAILED_LOGINS_BY_IP",
+#                     "Event Details": f"{cnt} failed attempts from IP {ip}",
+#                     "Value": {"ip_address": ip, "count": cnt}
+#                 })
+
+#         # Expired/disabled credentials
+#         expired_cnt = metrics.get("expired_credential_attempts", 0)
+#         if expired_cnt >= EXPIRED_CRED_THRESHOLD:
+#             anomalies.append({
+#                 "Event Type": "AUTHENTICATION_EVENTS",
+#                 "Event Sub Type": "EXPIRED_CREDENTIAL_ATTEMPTS",
+#                 "Event Details": f"{expired_cnt} expired/disabled credential attempt(s)",
+#                 "Value": expired_cnt
+#             })
+
+#         # Dictionary-attack signatures
+#         dict_sigs = metrics.get("dictionary_attack_signatures", [])
+#         if len(dict_sigs) >= DICT_ATTACK_USER_THRESHOLD:
+#             anomalies.append({
+#                 "Event Type": "AUTHENTICATION_EVENTS",
+#                 "Event Sub Type": "DICTIONARY_ATTACK_SIGNATURES",
+#                 "Event Details": "Many distinct usernames in short window",
+#                 "Value": dict_sigs
+#             })
+
+#     # SSH-specific failed attempts (unchanged)
+#     raw = metrics.get("failed_ssh_attempts")
+#     if raw is None:
+#         count, ip_counts = 0, Counter()
+#     elif isinstance(raw, (list, tuple)):
+#         try:
+#             count = int(raw[0])
+#             ip_counts = Counter(raw[1])
+#         except Exception:
+#             count, ip_counts = 0, Counter()
+#     else:
+#         try:
+#             count = int(raw)
+#         except Exception:
+#             count = 0
+#         ip_counts = Counter()
+
+#     if count > THRESHOLDS.get("failed_ssh_attempts", 0):
+#         info = ANOMALY_CATEGORIES["failed_ssh_attempts"]
+#         offenders = [f"{ip}×{cnt}" for ip, cnt in ip_counts.most_common()]
+#         offenders_str = ", ".join(offenders) if offenders else "unknown"
+#         anomalies.append({
+#             "Event Type": info["Event Type"],
+#             "Event Sub Type": info["Event Sub Type"],
+#             "Event Details": f"{info['Event Details']} from {offenders_str}",
+#             "Value": count
+#         })
+    
+#     #### For Unsuccessful password change
+#     failed_pw_changes = metrics.get("failed_password_changes", 0)
+#     users_pw_change   = metrics.get("users_failed_password_change", [])
+
+#     if failed_pw_changes:              # at least one attempt recorded
+#         anomalies.append({
+#             "Event Type": "AUTHENTICATION_EVENTS",
+#             "Event Sub Type": "PASSWORD_CHANGE_FAILURE",
+#             "Event Details": f"{failed_pw_changes} failed password change attempt(s)",
+#             "Value": users_pw_change or "unknown"
+#         })
+
+#         # High-risk condition → escalate
+#         if failed_pw_changes >= 3:     # adjust the threshold as you like
+#             anomalies.append({
+#                 "Event Type": "AUTHENTICATION_EVENTS",
+#                 "Event Sub Type": "PASSWORD_CHANGE_BRUTE_FORCE",
+#                 "Event Details": (
+#                     f"Possible brute-force: {failed_pw_changes} failed password changes within 5 min"
+#                 ),
+#                 "Value": users_pw_change or "unknown"
+#             })
+
+#     return anomalies
 
 def detect_login_anomalies(metrics):
     """Detect anomalies in login and system activity."""
@@ -332,7 +607,7 @@ def detect_login_anomalies(metrics):
             })
 
     # ── USB device anomalies ──────────────────────────────
-    # anomalies.extend(detect_usb_anomalies(metrics))
+    anomalies.extend(detect_usb_anomalies(metrics))
 
     # ── Excessive cron jobs ───────────────────────────────
     cron_count = metrics.get("num_cron_jobs")
@@ -524,12 +799,10 @@ def normalize_event_fields(metrics: dict, username: str, event_type: str, reason
 
 
 # def main():
-
 def main(stop_event=None):
-    print("\033[1;92m!!!!!!!!! Security Authentication Control Consumer Running (UDP) !!!!!!\033[0m")
-    LOG.info("!!!!!!!!! Security Authentication Control Consumer Running (UDP) !!!!!!")
+    print("\033[1;92m!!!!!!!!! SAC Consumer Running (UDP) !!!!!!\033[0m")
+    LOG.info("!!!!!!!!! SAC Consumer Running (UDP) !!!!!!")
 
-    init_db()
     # while True:
     while not (stop_event and stop_event.is_set()):
         try:
@@ -564,11 +837,11 @@ def main(stop_event=None):
                     elif not isinstance(hostname, str):
                         hostname = "Unknown"
 
-                    print(f"[DEBUG] Consumed hostname: {hostname}")
+                    # print(f"[DEBUG] Consumed hostname: {hostname}")
 
                     insert_authentication_event({
                         "timestamp": metrics.get("timestamp"),
-                        "event_type": "AUTHENTICATION_EVENTS",
+                        "event_type": "USER_CREATION",
                         "username": u,
                         "source_ip": str(source_ip),
                         "source_hostname": hostname,
@@ -578,83 +851,7 @@ def main(stop_event=None):
                         "extra_data": {}
                     })
 
-                    send_user_account_event_to_siem(
-                        event_type="USER_CREATED",
-                        username=u,
-                        metrics=metrics,
-                        reason=f"User account '{u}' created"
-                    )
-
-            if metrics.get("modified_users"):
-                for u in metrics["modified_users"]:
-                    remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
-                    if isinstance(remote_ip, list):
-                        source_ip = remote_ip[0] if remote_ip else "Unknown"
-                    elif isinstance(remote_ip, str):
-                        source_ip = remote_ip
-                    else:
-                        source_ip = "Unknown"
-
-                    hostname = metrics.get("hostname")
-                    if isinstance(hostname, dict):
-                        hostname = hostname.get("name") or json.dumps(hostname)
-                    elif not isinstance(hostname, str):
-                        hostname = "Unknown"
-
-                    insert_authentication_event({
-                        "timestamp": metrics.get("timestamp"),
-                        "event_type": "AUTHENTICATION_EVENTS",
-                        "username": u,
-                        "source_ip": source_ip,
-                        "source_hostname": hostname,   # ✅ now always a string
-                        "method": "usermod",
-                        "reason": f"User account '{u}' modified",
-                        "creator": metrics.get("creator", "System"),
-                        "extra_data": {}
-                    })
-
-                    send_user_account_event_to_siem(
-                        event_type="USER_MODIFIED",
-                        username=u,
-                        metrics=metrics,
-                        reason=f"User account '{u}' modified"
-                    )
-
-            if metrics.get("deleted_users"):
-                for u in metrics["deleted_users"]:
-                    remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
-                    if isinstance(remote_ip, list):
-                        source_ip = remote_ip[0] if remote_ip else "Unknown"
-                    elif isinstance(remote_ip, str):
-                        source_ip = remote_ip
-                    else:
-                        source_ip = "Unknown"
-
-                    hostname = metrics.get("hostname")
-                    if isinstance(hostname, dict):
-                        hostname = hostname.get("name") or json.dumps(hostname)
-                    elif not isinstance(hostname, str):
-                        hostname = "Unknown"
-
-                    insert_authentication_event({
-                        "timestamp": metrics.get("timestamp"),
-                        "event_type": "AUTHENTICATION_EVENTS",
-                        "username": u,
-                        "source_ip": source_ip,
-                        "source_hostname": hostname,   # ✅ now always a string
-                        "method": "userdel",
-                        "reason": f"User account '{u}' deleted",
-                        "creator": metrics.get("creator", "System"),
-                        "extra_data": {}
-                    })
-
-                    send_user_account_event_to_siem(
-                        event_type="USER_DELETED",
-                        username=u,
-                        metrics=metrics,
-                        reason=f"User account '{u}' deleted"
-                    )
-
+            
             # ------- Successful login events (SSH/others) ---------
             if metrics.get("successful_logins"):
                 for s in metrics["successful_logins"]:
@@ -662,27 +859,9 @@ def main(stop_event=None):
                     method   = (s.get("method") or "UNKNOWN").upper()
                     ts       = s.get("timestamp") or metrics.get("timestamp")
 
-                    # --- 1. If user was under brute-force → send recovery event ---
-                    # if BRUTE_FORCE_ACTIVE[username] or FAILED_LOGIN_STATE[username] > 0:
-                    if FAILED_LOGIN_STATE[username] > 0:
-                        recovery_event = {
-                            "timestamp": ts,
-                            "event_type": "AUTHENTICATION_EVENTS",
-                            "event_name": "SUCCESSFUL_LOGIN_AFTER_FAILED_LOGIN",
-                            "username": username,
-                            "source_ip": s.get("source_ip", "Unknown"),
-                            "source_hostname": s.get("source_hostname") or metrics.get("hostname", "Unknown"),
-                            "method": method,
-                            "event_reason": f"Successful login after {FAILED_LOGIN_STATE[username]} failed attempts",
-                            "creator": metrics.get("creator", "System"),
-                            "extra_data": {}
-                        }
-                        store_anomaly_to_database_and_siem(recovery_event)
-
-                    # --- 2. Insert normal successful login event ---
                     auth_event = {
                         "timestamp": ts,
-                        "event_type": "AUTHENTICATION_EVENTS",
+                        "event_type": "SUCCESSFUL_LOGIN",
                         "username": username,
                         "source_ip": s.get("source_ip", "Unknown"),
                         "source_hostname": s.get("source_hostname") or metrics.get("hostname", "Unknown"),
@@ -693,100 +872,77 @@ def main(stop_event=None):
                     }
                     insert_authentication_event(auth_event)
 
-                    # --- 3. Reset brute-force state ---
-                    BRUTE_FORCE_ACTIVE[username] = False
-                    FAILED_LOGIN_STATE[username] = 0
-                    FAILED_LOGIN_TRACKER[username].clear()
+            # # ------- Failed login events ---------
+            # failed_logins = metrics.get("failed_logins", 0)
+            # if failed_logins > 0:
+            #     username = metrics.get("username", "Unknown")
+            #     ts       = metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
 
-            # ------- Failed login events (SSH/others) ---------
-            failed_users = metrics.get("failed_logins_by_user", {})
-            # if not failed_users:
-            #     continue
+            #     # Try to extract IP properly
+            #     source_ip = "Unknown"
+            #     if metrics.get("failed_logins_by_ip"):
+            #         source_ip = list(metrics["failed_logins_by_ip"].keys())[0]
 
-            failed_ips = metrics.get("failed_logins_by_ip", {})
+            #     hostname = metrics.get("hostname") or "Unknown"
 
-            for username, new_count in failed_users.items():
+            #     auth_event = {
+            #         "timestamp": ts,
+            #         "event_type": "FAILED_LOGIN",
+            #         "username": username,
+            #         "source_ip": source_ip,
+            #         "source_hostname": hostname if isinstance(hostname, str) else "Unknown",
+            #         "method": "SSH",
+            #         "reason": f"{failed_logins} failed login attempt(s)",
+            #         "creator": metrics.get("creator", "System"),
+            #         "extra_data": {
+            #             "failed_logins_by_user": metrics.get("failed_logins_by_user", {}),
+            #             "failed_logins_by_ip": metrics.get("failed_logins_by_ip", {}),
+            #             "failed_ssh_attempts": metrics.get("failed_ssh_attempts", [])
+            #         }
+            #     }
+            #     insert_authentication_event(auth_event)
+            # ------- Failed login events (track delta instead of total) ---------
+            failed_logins_total = metrics.get("failed_logins", 0)
+            if failed_logins_total > 0:
+                mac      = metrics.get("mac_address", "unknown")
+                username = metrics.get("username", "Unknown")
+                ts       = metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
 
-                if new_count <= 0:
-                    continue
+                # Compute how many NEW failures since last time
+                prev_total = FAILED_LOGIN_STATE[mac]
+                delta = failed_logins_total - prev_total
+                FAILED_LOGIN_STATE[mac] = failed_logins_total
 
-                # ------------------------------------------------
-                # 1. Metadata
-                # ------------------------------------------------
-                ts = metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))
-                hostname = metrics.get("hostname", "Unknown")
-                hostname = hostname if isinstance(hostname, str) else "Unknown"
+                if delta > 0:  # only log new failures
+                    source_ip = "Unknown"
+                    if metrics.get("failed_logins_by_ip"):
+                        source_ip = list(metrics["failed_logins_by_ip"].keys())[0]
 
-                source_ip = "Unknown"
-                if failed_ips:
-                    source_ip = list(failed_ips.keys())[0]
+                    hostname = metrics.get("hostname") or "Unknown"
 
-                # ------------------------------------------------
-                # 2. PER-USER sliding 60-second window
-                # ------------------------------------------------
-                now = time.time()
-                tracker = FAILED_LOGIN_TRACKER[username]
-
-                # Insert new_count timestamps
-                for _ in range(new_count):
-                    tracker.append(now)
-
-                # Remove old timestamps
-                while tracker and (now - tracker[0] > FAILED_LOGIN_TIME_WINDOW):
-                    tracker.popleft()
-
-                total_for_user = len(tracker)
-                FAILED_LOGIN_STATE[username] += new_count
-
-                # ------------------------------------------------
-                # 3. Insert FAILED_LOGIN event
-                # ------------------------------------------------
-                auth_event = {
-                    "timestamp": ts,
-                    "event_type": "AUTHENTICATION_EVENTS",
-                    "event_name": "FAILED_LOGIN",
-                    "username": username,
-                    "source_ip": source_ip,
-                    "source_hostname": hostname,
-                    "method": "SSH",
-                    "reason": f"{total_for_user} failed login attempt(s) for {username}",
-                    "creator": metrics.get("creator", "System"),
-                    "extra_data": {
-                        "failed_logins_by_user": failed_users,
-                        "failed_logins_by_ip": failed_ips,
-                        "failed_ssh_attempts": metrics.get("failed_ssh_attempts", [])
-                    }
-                }
-                insert_authentication_event(auth_event)
-
-                # ------------------------------------------------
-                # 4. BRUTE FORCE detection (exact multiples)
-                # ------------------------------------------------
-                if total_for_user > 0 and total_for_user % FAILED_LOGIN_THRESHOLD == 0:
-                    anomaly = {
+                    auth_event = {
                         "timestamp": ts,
-                        "event_type": "AUTHENTICATION_EVENTS",
-                        "event_name": "SSH_BRUTE_FORCE_DETECTED",
+                        "event_type": "FAILED_LOGIN",
                         "username": username,
                         "source_ip": source_ip,
-                        "source_hostname": hostname,
+                        "source_hostname": hostname if isinstance(hostname, str) else "Unknown",
                         "method": "SSH",
-                        "event_reason": (
-                            f"Brute force detected: {total_for_user} failed attempts "
-                            f"within {FAILED_LOGIN_TIME_WINDOW} seconds"
-                        ),
+                        "reason": f"{delta} failed login attempt(s)",
                         "creator": metrics.get("creator", "System"),
-                        "extra_data": {}
+                        "extra_data": {
+                            "failed_logins_by_user": metrics.get("failed_logins_by_user", {}),
+                            "failed_logins_by_ip": metrics.get("failed_logins_by_ip", {}),
+                            "failed_ssh_attempts": metrics.get("failed_ssh_attempts", [])
+                        }
                     }
-                    store_anomaly_to_database_and_siem(anomaly)
-
+                    insert_authentication_event(auth_event)
 
             # ------- Failed Password Change ---------
             failed_pw_changes = metrics.get("failed_password_changes", 0)
             users_pw_change = metrics.get("users_failed_password_change", [])
 
             if failed_pw_changes > 0:
-                print(f"[DEBUG] Detected {failed_pw_changes} failed password change(s) by users: {users_pw_change}")
+                # print(f"[DEBUG] Detected {failed_pw_changes} failed password change(s) by users: {users_pw_change}")
                 for username in users_pw_change or ["Unknown"]:
                     auth_event = normalize_event_fields(
                         metrics,
@@ -801,45 +957,52 @@ def main(stop_event=None):
                     )
                     insert_authentication_event(auth_event)
 
-            # ------- Account Lockout Events (3.1 requirement) ---------
-            lock_count   = metrics.get("account_lockouts", 0)
-            locked_users = metrics.get("locked_users") or []
+            # ------- Anomaly Detection ---------
+            # anomalies = detect_login_anomalies(metrics)
 
-            if lock_count and locked_users:
-                for username in locked_users:
-                    # Per-user auth_log entry
-                    reason = f"Account Lock out triggered"
+            # if anomalies:
+            #     alert_data = {
+            #         "timestamp": metrics.get("timestamp", "N/A"),
+            #         "username": metrics.get("username", "Unknown"),
+            #         "mac_address": metrics.get("mac_address", "Unknown"),
+            #         "ip_addresses": metrics.get("ip_addresses", "Unknown"),
+            #         "anomalies": anomalies,
+            #         "metrics": metrics
+            #     }
+            #     alert_json = json.dumps(alert_data)
 
-                    final_evt = normalize_event_fields(
-                        metrics,
-                        username=username,
-                        event_type="AUTHENTICATION_EVENTS",
-                        reason=reason,
-                        method="passwd",
-                        extra_data={
-                            "account_lockouts": lock_count,
-                            "lock_source": "shadow"
-                        }
-                    )
+            #     if isinstance(alert_data.get("logText"), dict):
+            #         alert_data["logText"] = json.dumps(alert_data["logText"])
 
-                    insert_authentication_event(final_evt)
+            #     feature_vectors = create_packet(alert_json)
 
-                # Optional: also push a SIEM summary event for the whole batch
-                # store_anomaly_to_database_and_siem({
-                #     "timestamp": metrics.get("timestamp"),
-                #     "event_type": "AUTHENTICATION_EVENTS",
-                #     "event_name": "ACCOUNT_LOCKOUT",
-                #     "username": ",".join(locked_users),
-                #     "source_ip": final_evt["source_ip"],
-                #     "source_hostname": final_evt["source_hostname"],
-                #     "method": "passwd command",
-                #     "event_reason": f"{lock_count} account(s) locked in this interval",
-                #     "creator": metrics.get("creator", "System"),
-                #     "extra_data": {
-                #         "locked_users": locked_users,
-                #         "account_lockouts": lock_count
-                #     }
-                # })
+            #     print("Attempting to store in POSTGRES...")
+            #     LOG.info("Anomalies detected: %s", [a.get("Event Sub Type") for a in anomalies])
+            #     LOG.debug("Anomalies detail: %s", anomalies)
+            #     store_anomaly_to_database_and_siem(alert_json)
+            anomalies = detect_login_anomalies(metrics)
+
+            if anomalies:
+                anomaly = {
+                    # "eventId": str(uuid.uuid4()),  # unique ID
+                    "username": metrics.get("username", "Unknown"),
+                    "timestamp": metrics.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S")),
+                    "event_type": "AUTHENTICATION_EVENTS",
+                    "event_name": "FAILED_LOGIN",
+                    "severity": "ALERT",
+                    "eventReason": f"Detected anomalies: {[a.get('Event Sub Type') for a in anomalies]}",
+                    "deviceIp": (metrics.get("ip_addresses") or ["Unknown"])[0],
+                    "deviceMacId": metrics.get("mac_address", "Unknown"),
+                    "logText": json.dumps(metrics),  # stringified metrics (safe for DB/SIEM)
+                    "riskScore": 10.0                # or your calculate_risk(anomalies)
+                }
+
+                print("Attempting to store in POSTGRES...")
+                LOG.info("Anomalies detected: %s", [a.get("Event Sub Type") for a in anomalies])
+                LOG.debug("Anomalies detail: %s", anomalies)
+
+                store_anomaly_to_database_and_siem(anomaly)
+
 
         except Exception as e:
             LOG.error(f"[SAC Consumer Error] {e}")

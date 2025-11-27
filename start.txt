@@ -151,6 +151,14 @@ Open Windows Count Error: [Errno 2] No such file or directory: 'wmctrl'
 sudo apt install wmctrl -y
 
 
+For system latency monitoring: 
+
+sudo apt install latencytop
+sudo apt install linux-tools-common linux-tools-generic linux-tools-$(uname -r)
+sudo apt install cyclictest   or sudo apt install rt-tests
+
+
+
 
 
     
@@ -284,3 +292,8 @@ systemctl status ueba-server
 
 ---------------------
 to check the services running: systemctl --type=service --state=running --no-pager --all
+
+
+
+######
+cut -d: -f1 /etc/passwd

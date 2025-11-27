@@ -822,13 +822,22 @@ def map_common_fields(raw_anomaly):
     except Exception:
         dt = datetime.now()
     # print("333333333333333333333333333")
+    raw_event_type = raw_anomaly.get("event_type", "NA")
+    raw_event_name = raw_anomaly.get("event_name", "NA")
+    raw_msg_id     = raw_anomaly.get("msg_id", "NA")
 
-    event_type = CONFIG["event_type"].get(raw_anomaly.get("event_type", "NA"), 0)
-    event_name = CONFIG["event_name"].get(raw_anomaly.get("event_name", "NA"), 0)
-    msg_id = CONFIG["msg_id"].get(raw_anomaly.get("msg_id", "NA"), 0)
-    # print("event_type:", event_type)
-    # print("event_name:", event_name)
-    # print("msg_id:", msg_id)
+    # event_type = CONFIG["event_type"].get(raw_anomaly.get("event_type", "NA"), 0)
+    # event_name = CONFIG["event_name"].get(raw_anomaly.get("event_name", "NA"), 0)
+    # msg_id = CONFIG["msg_id"].get(raw_anomaly.get("msg_id", "NA"), 0)
+    event_type = CONFIG["mappings"]["event_type"].get(raw_event_type, 0)
+    event_name = CONFIG["mappings"]["event"].get(raw_event_name, 0)
+    msg_id     = CONFIG["msg_id"].get(raw_msg_id, 0)
+
+    # print("\n===== DEBUG: RAW ANOMALY MAPPING =====")
+    # print("RAW event_type:", raw_event_type, " -> MAPPED:", event_type)
+    # print("RAW event_name:", raw_event_name, " -> MAPPED:", event_name)
+    # print("RAW msg_id:",     raw_msg_id,     " -> MAPPED:", msg_id)
+    # print("======================================\n")
 
     base = {
         "msg_id": msg_id,
@@ -968,8 +977,8 @@ def store_anomaly_to_database_and_siem(alert_json):
 
             try:
                 # --- Map codes via CONFIG, then force strings for DB/SIEM ---
-                event_type_code = CONFIG["event_type"].get(str(message["eventType"]), message["eventType"])
-                event_subtype_code = CONFIG["event_name"].get(str(message["eventName"]), message["eventName"])
+                event_type_code = CONFIG["mappings"]["event_type"].get(str(message["eventType"]), message["eventType"])
+                event_subtype_code = CONFIG["mappings"]["event"].get(str(message["eventName"]), message["eventName"])
                 severity_code = CONFIG["mappings"]["severity"].get(str(message["severity"]), message["severity"])
 
                 event_type_str = str(event_type_code)
@@ -1058,8 +1067,8 @@ def store_anomaly_to_database_and_siem(alert_json):
                     }
                 }
 
-                # print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
-                # send_json_packet(siem_msg)
+                print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
+                send_json_packet(siem_msg)
 
             except Exception as e:
                 print(f"Error inserting record: {e}")
@@ -1165,12 +1174,12 @@ def store_siem_ready_packet(siem_packet):
 
         # 4. Forward packet to SIEM (send original dict with structured timestamps)
              # To be done after phase 1 DO NOT REMOVE FROM HERE.
-        success = send_json_packet(siem_packet)
+        # success = send_json_packet(siem_packet)
 
         ### For Rabbit MQ####
-        # msg_id = siem_packet.get("msg_id")
-        # print(f"messgae id before sending {msg_id}")
-        # success = send_to_rabbitmq(siem_packet, msg_id=msg_id, target="siem")
+        msg_id = siem_packet.get("msg_id")
+        print(f"messgae id before sending {msg_id}")
+        success = send_to_rabbitmq(siem_packet, msg_id=msg_id, target="siem")
 
         if success:
             logging.info(f"[SIEM] SENT anomaly: {siem_packet}")

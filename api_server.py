@@ -1406,16 +1406,78 @@ def get_clients_status_list():
     return result
 
 
+# def main(stop_event=None):
+
+#     import uvicorn
+#     import logging
+#     from pathlib import Path
+#     from datetime import datetime
+
+#     print("\033[1;32m  !!!!!UEBA DASHBOARD API SERVER (UDP) started!!!!!!\033[0m") 
+
+#     # Prepare log folder inside ~/ueba_server_log
+#     USER_HOME = Path.home()
+#     BASE_LOG_DIR = USER_HOME / "ueba_server_log"
+#     BASE_LOG_DIR.mkdir(exist_ok=True)
+
+#     today = datetime.now().strftime("%d%b")
+#     dashboard_log = BASE_LOG_DIR / f"ueba_dashboard_api.log_{today}"
+
+#     # Configure Uvicorn but suppress default access logging to console
+#     config = uvicorn.Config(app, host=_cfg.get("ueba_dashboard", {}).get("host", _cfg["udp"]["server_ip"]),
+#                             port=int(_cfg.get("ueba_dashboard", {}).get("port", 8000)),
+#                             reload=False, log_config=None)
+#     server = uvicorn.Server(config)
+
+#     # Redirect uvicorn.access to file
+#     uvicorn_access = logging.getLogger("uvicorn.access")
+#     fh = logging.FileHandler(dashboard_log, mode="a")
+#     fh.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
+#     uvicorn_access.addHandler(fh)
+#     uvicorn_access.propagate = False   # don’t bubble to console
+
+#     if stop_event is None:
+#         # Standalone run (python api_server.py)
+#         server.run()
+#     else:
+#         # Run inside consumer_main with cooperative shutdown
+#         thread = threading.Thread(target=server.run, daemon=True)
+#         thread.start()
+
+#         # Poll until stop_event is set
+#         while not stop_event.is_set():
+#             time.sleep(0.5)
+
+#         # Tell uvicorn to shut down
+#         server.should_exit = True
+#         thread.join()
+
 def main(stop_event=None):
 
     import uvicorn
     import logging
     from pathlib import Path
     from datetime import datetime
+    import threading
+    import time
 
-    print("\033[1;32m  !!!!!UEBA DASHBOARD API SERVER (UDP) started!!!!!!\033[0m") 
+    # ----------------------------------------------------------------------
+    # KEEP your custom banner print (only thing allowed to appear in console)
+    # ----------------------------------------------------------------------
+    print("\033[1;32m  !!!!!UEBA DASHBOARD API SERVER (UDP) started!!!!!!\033[0m")
 
-    # Prepare log folder inside ~/ueba_server_log
+    # ----------------------------------------------------------------------
+    # SILENCE uvicorn's internal console logs: error, server, startup, etc.
+    # ----------------------------------------------------------------------
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.server"):
+        logger = logging.getLogger(name)
+        logger.handlers = []       # remove any handlers that print to console
+        logger.propagate = False
+        logger.disabled = True     # fully disable these loggers
+
+    # ----------------------------------------------------------------------
+    # Prepare log folder
+    # ----------------------------------------------------------------------
     USER_HOME = Path.home()
     BASE_LOG_DIR = USER_HOME / "ueba_server_log"
     BASE_LOG_DIR.mkdir(exist_ok=True)
@@ -1423,35 +1485,48 @@ def main(stop_event=None):
     today = datetime.now().strftime("%d%b")
     dashboard_log = BASE_LOG_DIR / f"ueba_dashboard_api.log_{today}"
 
-    # Configure Uvicorn but suppress default access logging to console
-    config = uvicorn.Config(app, host=_cfg.get("ueba_dashboard", {}).get("host", _cfg["udp"]["server_ip"]),
-                            port=int(_cfg.get("ueba_dashboard", {}).get("port", 8000)),
-                            reload=False, log_config=None)
+    # ----------------------------------------------------------------------
+    # Configure Uvicorn WITHOUT console logging
+    # ----------------------------------------------------------------------
+    config = uvicorn.Config(
+        app,
+        host=_cfg.get("ueba_dashboard", {}).get("host", _cfg["udp"]["server_ip"]),
+        port=int(_cfg.get("ueba_dashboard", {}).get("port", 8000)),
+        reload=False,
+        log_config=None  # prevents uvicorn from creating default console log handlers
+    )
+
     server = uvicorn.Server(config)
 
-    # Redirect uvicorn.access to file
+    # ----------------------------------------------------------------------
+    # Redirect only "uvicorn.access" logs to a file
+    # ----------------------------------------------------------------------
     uvicorn_access = logging.getLogger("uvicorn.access")
     fh = logging.FileHandler(dashboard_log, mode="a")
     fh.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
     uvicorn_access.addHandler(fh)
-    uvicorn_access.propagate = False   # don’t bubble to console
+    uvicorn_access.propagate = False  # don't send access logs to console
 
+    # ----------------------------------------------------------------------
+    # Standalone mode (running python api_server.py)
+    # ----------------------------------------------------------------------
     if stop_event is None:
-        # Standalone run (python api_server.py)
         server.run()
-    else:
-        # Run inside consumer_main with cooperative shutdown
-        thread = threading.Thread(target=server.run, daemon=True)
-        thread.start()
+        return
 
-        # Poll until stop_event is set
-        while not stop_event.is_set():
-            time.sleep(0.5)
+    # ----------------------------------------------------------------------
+    # Integrated mode (run inside main server bootstrap)
+    # ----------------------------------------------------------------------
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
 
-        # Tell uvicorn to shut down
-        server.should_exit = True
-        thread.join()
+    # Poll until stop_event is set
+    while not stop_event.is_set():
+        time.sleep(0.5)
 
+    # Trigger shutdown
+    server.should_exit = True
+    thread.join()
 
 
 

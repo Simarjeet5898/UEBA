@@ -23,21 +23,54 @@ def init_data_exfiltration_table():
     conn.close()
 
 
-# ---------- CREATE ----------
+# # ---------- CREATE ----------
+# def add_data_exfiltration_config(sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO data_exfiltration_config 
+#         (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, updated_at)
+#         VALUES (%s, %s, %s, %s, %s)
+#         RETURNING id;
+#     """, (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
 def add_data_exfiltration_config(sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO data_exfiltration_config 
-        (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, updated_at)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING id;
-    """, (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM data_exfiltration_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE data_exfiltration_config
+            SET sensitive_files = %s,
+                sensitive_data_types = %s,
+                sensitive_file_extensions = %s,
+                trusted_ip_ranges = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO data_exfiltration_config
+            (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, updated_at)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (sensitive_files, sensitive_data_types, sensitive_file_extensions, trusted_ip_ranges, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
     return config_id
+
 
 
 # ---------- READ (All) ----------
@@ -114,16 +147,47 @@ def init_privileged_user_table():
 
 
 # ---------- CREATE ----------
+
+# def add_privileged_user_config(privileged_users):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO privileged_user_config 
+#         (privileged_users, updated_at)
+#         VALUES (%s, %s)
+#         RETURNING id;
+#     """, (privileged_users, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_privileged_user_config(privileged_users):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO privileged_user_config 
-        (privileged_users, updated_at)
-        VALUES (%s, %s)
-        RETURNING id;
-    """, (privileged_users, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM privileged_user_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE privileged_user_config
+            SET privileged_users = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (privileged_users, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO privileged_user_config
+            (privileged_users, updated_at)
+            VALUES (%s, %s)
+            RETURNING id;
+        """, (privileged_users, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -202,20 +266,53 @@ def init_anomalous_file_access_table():
 
 
 # ---------- CREATE ----------
+# def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO anomalous_file_access_config 
+#         (sensitive_files, sensitive_file_extensions, updated_at)
+#         VALUES (%s, %s, %s)
+#         RETURNING id;
+#     """, (sensitive_files, sensitive_file_extensions, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO anomalous_file_access_config 
-        (sensitive_files, sensitive_file_extensions, updated_at)
-        VALUES (%s, %s, %s)
-        RETURNING id;
-    """, (sensitive_files, sensitive_file_extensions, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM anomalous_file_access_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE anomalous_file_access_config
+            SET sensitive_files = %s,
+                sensitive_file_extensions = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (sensitive_files, sensitive_file_extensions, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO anomalous_file_access_config
+            (sensitive_files, sensitive_file_extensions, updated_at)
+            VALUES (%s, %s, %s)
+            RETURNING id;
+        """, (sensitive_files, sensitive_file_extensions, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
     return config_id
+
+
 
 
 # ---------- READ (All) ----------
@@ -289,16 +386,47 @@ def init_dormancy_table():
 
 
 # ---------- CREATE ----------
+
+# def add_dormancy_config(dormancy_value):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO dormancy_config 
+#         (dormancy_value, updated_at)
+#         VALUES (%s, %s)
+#         RETURNING id;
+#     """, (dormancy_value, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_dormancy_config(dormancy_value):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO dormancy_config 
-        (dormancy_value, updated_at)
-        VALUES (%s, %s)
-        RETURNING id;
-    """, (dormancy_value, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM dormancy_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE dormancy_config
+            SET dormancy_value = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (dormancy_value, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO dormancy_config
+            (dormancy_value, updated_at)
+            VALUES (%s, %s)
+            RETURNING id;
+        """, (dormancy_value, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -376,16 +504,47 @@ def init_bulk_data_operation_table():
 
 
 # ---------- CREATE ----------
+
+# def add_bulk_data_operation_config(threshold_value):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO bulk_data_operation_config 
+#         (threshold_value, updated_at)
+#         VALUES (%s, %s)
+#         RETURNING id;
+#     """, (threshold_value, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_bulk_data_operation_config(threshold_value):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO bulk_data_operation_config 
-        (threshold_value, updated_at)
-        VALUES (%s, %s)
-        RETURNING id;
-    """, (threshold_value, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM bulk_data_operation_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE bulk_data_operation_config
+            SET threshold_value = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (threshold_value, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO bulk_data_operation_config
+            (threshold_value, updated_at)
+            VALUES (%s, %s)
+            RETURNING id;
+        """, (threshold_value, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -464,16 +623,47 @@ def init_abnormal_login_logout_table():
 
 
 # ---------- CREATE ----------
+# def add_abnormal_login_logout_config(start_time, end_time):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO abnormal_login_logout_config 
+#         (start_time, end_time, updated_at)
+#         VALUES (%s, %s, %s)
+#         RETURNING id;
+#     """, (start_time, end_time, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_abnormal_login_logout_config(start_time, end_time):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO abnormal_login_logout_config 
-        (start_time, end_time, updated_at)
-        VALUES (%s, %s, %s)
-        RETURNING id;
-    """, (start_time, end_time, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM abnormal_login_logout_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE abnormal_login_logout_config
+            SET start_time = %s,
+                end_time = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (start_time, end_time, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO abnormal_login_logout_config
+            (start_time, end_time, updated_at)
+            VALUES (%s, %s, %s)
+            RETURNING id;
+        """, (start_time, end_time, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -558,16 +748,53 @@ def init_alert_suppression_table():
 
 
 # ---------- CREATE ----------
+
+# def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO alert_suppression_config 
+#         (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, updated_at)
+#         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+#         RETURNING id;
+#     """, (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO alert_suppression_config 
-        (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id;
-    """, (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, datetime.now()))
-    config_id = cursor.fetchone()[0]
+
+    cursor.execute("SELECT id FROM alert_suppression_config LIMIT 1;")
+    row = cursor.fetchone()
+
+    if row:
+        config_id = row[0]
+        cursor.execute("""
+            UPDATE alert_suppression_config
+            SET usernames = %s,
+                hostnames = %s,
+                ip_ranges = %s,
+                event_frequency_threshold = %s,
+                event_sources = %s,
+                timestamp_start = %s,
+                timestamp_end = %s,
+                updated_at = %s
+            WHERE id = %s;
+        """, (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, datetime.now(), config_id))
+
+    else:
+        cursor.execute("""
+            INSERT INTO alert_suppression_config
+            (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id;
+        """, (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, datetime.now()))
+        config_id = cursor.fetchone()[0]
+
     conn.commit()
     cursor.close()
     conn.close()
@@ -631,3 +858,5 @@ def delete_alert_suppression_config(config_id):
     cursor.close()
     conn.close()
     return True
+
+

@@ -25,6 +25,50 @@ DB_CONFIG = {
     'dbname': config["local_db"]["dbname"]
 }
 
+
+def init_db():
+    """Create all required tables at service startup."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        # ---- Table 1: client_status ----
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS client_status (
+                id SERIAL PRIMARY KEY,
+                client_id TEXT UNIQUE,
+                last_seen TIMESTAMP,
+                status TEXT
+            );
+        """)
+
+        # ---- Table 2: system_status ----
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS system_status (
+                id SERIAL PRIMARY KEY,
+                client_id TEXT,
+                event TEXT,
+                event_type TEXT,
+                status TEXT NULL,
+                details TEXT NULL,
+                timestamp TIMESTAMP,
+                boot_time TIMESTAMP NULL,
+                close_time TIMESTAMP NULL,
+                UNIQUE (client_id, event, event_type, details)
+            );
+        """)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        # print("[DB INIT] Tables client_status & system_status ensured.")
+
+    except Exception as e:
+        print(f"[DB INIT ERROR] {e}")
+        LOG.error(f"[DB INIT ERROR] {e}")
+
+
+
 def store_heartbeat(event):
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -195,9 +239,10 @@ def store_system_status(event):
 
 def main(stop_event=None):
     # print("\033[1;32m  !!!!!!!!!!!Heartbeat Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
-    print("\033[1;32m  !!!!!!!!!!!Heartbeat + System Status Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
+    print("\033[1;32m  !!!!!!!!!!!Heartbeat & System Status Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
 
     LOG.info("Heartbeat consumer started (UDP)")
+    init_db()
 
     try:
         while not (stop_event and stop_event.is_set()):
@@ -234,7 +279,7 @@ def main(stop_event=None):
 
             # --- Unknown event types ---
             else:
-                print(f"[DEBUG] Unknown event type received: {event_type}")
+                # print(f"[DEBUG] Unknown event type received: {event_type}")
                 print(f"Raw data: {data.decode('utf-8', errors='ignore')}")
 
     except KeyboardInterrupt:

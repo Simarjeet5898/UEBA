@@ -23,11 +23,11 @@ except Exception as e:
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
 
-print(f"[UEBA Client] Loaded config. Sending via UDP {UDP_IP}:{UDP_PORT}")
+# print(f"[UEBA Client] Loaded config. Sending via UDP {UDP_IP}:{UDP_PORT}")
 
 # === Import Producers ===
 from kafka_producer.connected_entities_producer_udp import main as connected_entities_main
-from kafka_producer.file_sys_monitoring_producer_udp import main as file_sys_main
+from kafka_producer.file_sys_monitoring_producer_udp_old import main as file_sys_main
 from kafka_producer.login_events_producer_udp import main as login_events_main
 from kafka_producer.system_monitor_producer_udp import main as system_monitor_main
 

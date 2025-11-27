@@ -112,101 +112,121 @@ ewma_deviation = {}
 
 # Mapping of anomalies to event types and sub-types
 
+# ANOMALY_CATEGORIES = {
+#     "cpu_usage": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "ANOMALOUS_CPU_CONSUMPTION",
+#         "Event Details": "Excessive CPU utilization detected",
+#     },
+#     "memory_usage": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "ANOMALOUS_RAM_CONSUMPTION",
+#         "Event Details": "Unusual memory usage indicating potential attack",
+#     },
+#     "disk_usage": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unusual increase in disk read/write operations",
+#     },
+#     "gpu_usage": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "ANOMALOUS_GPU_CONSUMPTION",
+#         "Event Details": "Unexpected GPU usage",
+#     },
+#     "system_temperature": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "High system temperature beyond normal thresholds",
+#     },
+#     "response_time": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "High Response Time",
+#     },
+#     "network_bytes_sent": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "High outbound network traffic",
+#     },
+#     "network_bytes_recv": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unusual spike in inbound network traffic",
+#     },
+#     "network_packets_sent": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unusual spike in outbound network traffic",
+#     },
+#     "network_packets_recv": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Sudden surge in incoming network packets",
+#     },
+#     "total_files": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Possible File Overloading",
+#     },
+#     "num_gui_processes": {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Possible GUI Overloading",
+#     },
+#     "avg_load" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unusual Spike in System Load"
+#     },
+#     "num_open_windows" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "GUI Overloading"
+#     },
+#     "total_threads" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
+#         "Event Details": "Anomalous thread spawning"
+#      },
+#     "total_processes" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
+#         "Event Details": "Anomalous Process spawning"
+#     },
+#     "disk_read_rate" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unauthorized Disk Reads"
+#     },
+#     "disk_write_rate" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
+#         "Event Details": "Unauthorized Disk Writes"
+#     },
+#     "encrypted_files" : {
+#         "Event Type": "BEHAVIORAL_EVENTS",
+#         "Event Sub Type": "LARGE_SCALE_ENCRYPTION",
+#         "Event Details": "Large Scale Encryption Detected"
+#     }
+
+# }
+
+
 ANOMALY_CATEGORIES = {
     "cpu_usage": {
-        "Event Type": "SYSTEM_EVENTS",
+        "Event Type": "BEHAVIORAL_EVENTS",
         "Event Sub Type": "ANOMALOUS_CPU_CONSUMPTION",
         "Event Details": "Excessive CPU utilization detected",
     },
     "memory_usage": {
-        "Event Type": "SYSTEM_EVENTS",
+        "Event Type": "BEHAVIORAL_EVENTS",
         "Event Sub Type": "ANOMALOUS_RAM_CONSUMPTION",
         "Event Details": "Unusual memory usage indicating potential attack",
     },
-    "disk_usage": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unusual increase in disk read/write operations",
-    },
     "gpu_usage": {
-        "Event Type": "SYSTEM_EVENTS",
+        "Event Type": "BEHAVIORAL_EVENTS",
         "Event Sub Type": "ANOMALOUS_GPU_CONSUMPTION",
         "Event Details": "Unexpected GPU usage",
-    },
-    "system_temperature": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "High system temperature beyond normal thresholds",
-    },
-    "response_time": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "High Response Time",
-    },
-    "network_bytes_sent": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "High outbound network traffic",
-    },
-    "network_bytes_recv": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unusual spike in inbound network traffic",
-    },
-    "network_packets_sent": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unusual spike in outbound network traffic",
-    },
-    "network_packets_recv": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Sudden surge in incoming network packets",
-    },
-    "total_files": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Possible File Overloading",
-    },
-    "num_gui_processes": {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Possible GUI Overloading",
-    },
-    "avg_load" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unusual Spike in System Load"
-    },
-    "num_open_windows" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "GUI Overloading"
-    },
-    "total_threads" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
-        "Event Details": "Anomalous thread spawning"
-     },
-    "total_processes" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
-        "Event Details": "Anomalous Process spawning"
-    },
-    "disk_read_rate" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unauthorized Disk Reads"
-    },
-    "disk_write_rate" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "DDOS_ATTACK_DETECTED",
-        "Event Details": "Unauthorized Disk Writes"
-    },
-    "encrypted_files" : {
-        "Event Type": "SYSTEM_EVENTS",
-        "Event Sub Type": "LARGE_SCALE_ENCRYPTION",
-        "Event Details": "Large Scale Encryption Detected"
     }
 
 }
@@ -564,6 +584,9 @@ def detect_command_deviation(user_id, command, baseline):
     return None
 
 
+#cpu stress command for abnormal cpu
+#stress-ng --temp-path /tmp --vm 2 --vm-bytes 80% --timeout 60s for abnormal memory
+
 
 def main(stop_event=None):
     print("\033[1;92m!!!!!!!!! SRU Consumer Running (UDP) !!!!!!\033[0m")
@@ -623,7 +646,7 @@ def main(stop_event=None):
                         "command_text": full_cmd,
                         "command_exe_duration": float(cmd.get("duration", 0.0)),
                         "command_repetition": "NO",
-                        "event_type": "SYSTEM_EVENTS",
+                        "event_type": "USER_ACTIVITY_EVENTS",
                         "event_name": "TERMINAL_COMMAND_EXECUTED",
                         "msg_id": "UEBA_SIEM_CMD_EXE_MONI_MSG",
                         "severity": "ALERT"
@@ -665,8 +688,9 @@ def main(stop_event=None):
         if anomalies:
             print(f"[INFO] Detected {len(anomalies)} resource anomalies")
             LOG.info("[Resource anomalies] count=%s mac=%s",
-                     len(anomalies), metrics.get("mac_address"))
+                    len(anomalies), metrics.get("mac_address"))
 
+        # Determine top process
         processes = metrics.get("per_process_memory") or []
         if processes:
             top_proc = max(processes, key=lambda p: p.get("rss", 0))
@@ -678,11 +702,36 @@ def main(stop_event=None):
             top_process_name = None
             top_process_rss = None
 
+        # --- Prevent storing empty/null resource usage rows ---
+        meaningful_vals = [
+            metrics.get("cpu_usage"),
+            metrics.get("gpu_usage"),
+            metrics.get("ram_usage"),
+            metrics.get("memory_usage"),
+            metrics.get("disk_read_rate"),
+            metrics.get("disk_write_rate"),
+            metrics.get("network_bytes_sent"),
+            metrics.get("network_bytes_recv"),
+            metrics.get("network_packets_sent"),
+            metrics.get("network_packets_recv"),
+            top_process_pid,
+            top_process_name,
+            top_process_rss
+        ]
+
+        if all(v is None for v in meaningful_vals):
+            # LOG.warning("[SKIP] Empty resource_usage row ignored for MAC=%s", metrics.get("mac_address"))
+            conn.commit()
+            cur.close()
+            conn.close()
+            continue
+
         # --- Ensure timestamp is never NULL for resource_usage ---
         ts = metrics.get("timestamp")
         if not ts:
             ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+        # Insert meaningful resource usage record
         cur.execute(
             """
             INSERT INTO resource_usage (
@@ -716,19 +765,45 @@ def main(stop_event=None):
             )
         )
 
+        # Store anomalies (if any)
+        # for anomaly in anomalies:
+        #     anomaly_msg = {
+        #         "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
+        #         "event_type": "SYSTEM_EVENTS",
+        #         "event_name": "DDOS_ATTACK_DETECTED",
+        #         "event_reason": anomaly.get("event_reason"),
+        #         "timestamp": metrics.get("timestamp"),
+        #         "log_text": json.dumps(metrics),
+        #         "severity": "ALERT",
+        #     }
+        #     store_anomaly_to_database_and_siem(anomaly_msg)
+        #     siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
+        #     store_siem_ready_packet(asdict(siem_packet))
         for anomaly in anomalies:
+            metric = anomaly.get("metric")
+            info = ANOMALY_CATEGORIES.get(metric, {
+                "Event Type": "Unknown",
+                "Event Sub Type": "Unknown",
+                "Event Details": "Unknown anomaly detected"
+            })
+
             anomaly_msg = {
                 "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
-                "event_type": "SYSTEM_EVENTS",
-                "event_name": "DDOS_ATTACK_DETECTED",
-                "event_reason": anomaly.get("event_reason"),
+                "event_type": info["Event Type"],
+                "event_name": info["Event Sub Type"],
+                "event_reason": info["Event Details"],
                 "timestamp": metrics.get("timestamp"),
                 "log_text": json.dumps(metrics),
                 "severity": "ALERT",
+                "metric": metric,
+                "current_value": anomaly.get("current_value")
             }
+
             store_anomaly_to_database_and_siem(anomaly_msg)
             siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
             store_siem_ready_packet(asdict(siem_packet))
+
+
 
         # ---------- NETWORK STATUS ----------
         network_records = metrics.get("network_status", [])

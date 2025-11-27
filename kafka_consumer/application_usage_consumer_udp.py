@@ -68,6 +68,8 @@ from datetime import datetime
 from helper import store_anomaly_to_database_and_siem, build_anomalous_application_usage_packet, store_siem_ready_packet
 # from udp_dispatcher import queues
 from dataclasses import asdict
+import threading
+import time
 
 
 
@@ -94,6 +96,9 @@ DB_CONFIG = {
     'password': config["local_db"]["password"],
     'dbname': config["local_db"]["dbname"]
 }
+
+ANOMALY_CONFIG = config.get("application_usage_anomaly", {})
+
 
 
 # ─── Ensure application_usage table exists ───
@@ -128,11 +133,112 @@ def ensure_table(conn):
 ############
 
 
+# def create_latency_monitoring_table(conn):
+#     cur = conn.cursor()
+#     cur.execute("""
+#         CREATE TABLE IF NOT EXISTS latency_monitoring (
+#             id SERIAL PRIMARY KEY,
+#             username TEXT,
+#             cpu_percent REAL,
+#             memory_percent REAL,
+#             startup_latency REAL,
+#             response_time REAL,
+#             io_wait_time REAL,
+#             disk_read_rate REAL,
+#             disk_write_rate REAL,
+#             load_average REAL,
+#             network_bytes_sent BIGINT,
+#             network_bytes_recv BIGINT,
+#             context_switches BIGINT,
+#             system_temperature REAL,
+#             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+#         );
+#     """)
+#     conn.commit()
+#     cur.close()
+
+def hourly_latency_aggregator(conn):
+    while True:
+        time.sleep(3600)
+
+        cur = conn.cursor()
+
+        cur.execute("""
+            INSERT INTO latency_monitoring (
+                kernel_worst_latency_ms,
+                kernel_avg_latency_ms,
+                sched_avg_delay_ms,
+                rt_min_latency_us,
+                rt_avg_latency_us,
+                rt_max_latency_us,
+                username,
+                cpu_percent,
+                memory_percent,
+                startup_latency,
+                response_time,
+                io_wait_time,
+                disk_read_rate,
+                disk_write_rate,
+                load_average,
+                network_bytes_sent,
+                network_bytes_recv,
+                context_switches,
+                system_temperature,
+                timestamp,
+                aggregation_type
+            )
+            SELECT 
+                MAX(kernel_worst_latency_ms),
+                AVG(kernel_avg_latency_ms),
+                NULL,
+                AVG(sched_avg_delay_ms),
+                MAX(sched_max_delay_ms),
+                SUM(sched_sample_count),
+                MIN(rt_min_latency_us),
+                AVG(rt_avg_latency_us),
+                MAX(rt_max_latency_us),
+                username,
+                AVG(cpu_percent),
+                AVG(memory_percent),
+                AVG(startup_latency),
+                AVG(response_time),
+                AVG(io_wait_time),
+                AVG(disk_read_rate),
+                AVG(disk_write_rate),
+                AVG(load_average),
+                AVG(network_bytes_sent),
+                AVG(network_bytes_recv),
+                AVG(context_switches),
+                AVG(system_temperature),
+                NOW(),
+                'hourly'
+            FROM latency_monitoring
+            WHERE aggregation_type = 'realtime'
+              AND timestamp > NOW() - INTERVAL '1 hour'
+            GROUP BY username;
+        """)
+
+        conn.commit()
+        cur.close()
+
+
 def create_latency_monitoring_table(conn):
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS latency_monitoring (
             id SERIAL PRIMARY KEY,
+
+            -- NEW UEBA_015 latency fields (FIRST)
+            kernel_worst_latency_ms REAL,
+            kernel_avg_latency_ms REAL,
+
+            sched_avg_delay_ms REAL,
+
+            rt_min_latency_us REAL,
+            rt_avg_latency_us REAL,
+            rt_max_latency_us REAL,
+
+            -- OLD FIELDS (keep them)
             username TEXT,
             cpu_percent REAL,
             memory_percent REAL,
@@ -146,11 +252,16 @@ def create_latency_monitoring_table(conn):
             network_bytes_recv BIGINT,
             context_switches BIGINT,
             system_temperature REAL,
+
+            -- NEW (IMPORTANT)
+            aggregation_type TEXT DEFAULT 'realtime',
+
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     conn.commit()
     cur.close()
+
 
 
 def insert_usage_record(conn, record):
@@ -183,37 +294,6 @@ def insert_usage_record(conn, record):
             """
             cur.execute(insert_sql, record)
 
-        # elif event == "update":
-        #     # Try to update live metrics
-        #     update_sql = """
-        #         UPDATE application_usage
-        #         SET cpu_percent   = %(cpu_percent)s,
-        #             memory_percent = %(memory_percent)s,
-        #             status        = %(status)s,
-        #             timestamp     = %(timestamp)s,
-        #             network_activity = %(network_activity)s
-        #         WHERE pid = %(pid)s AND start_time = %(start_time)s;
-        #     """
-        #     cur.execute(update_sql, record)
-
-            # # If no row exists, insert as late launch
-            # if cur.rowcount == 0:
-            #     insert_sql = """
-            #         INSERT INTO application_usage (
-            #             username, process_name, pid, ppid,
-            #             parent_name, cmdline, status,
-            #             cpu_percent, memory_percent,
-            #             start_time, end_time, duration_secs,
-            #             timestamp, ip_address, mac_address, network_activity
-            #         ) VALUES (
-            #             %(username)s, %(process_name)s, %(pid)s, %(ppid)s,
-            #             %(parent_name)s, %(cmdline)s, %(status)s,
-            #             %(cpu_percent)s, %(memory_percent)s,
-            #             %(start_time)s, %(end_time)s, %(duration_secs)s,
-            #             %(timestamp)s, %(ip_address)s, %(mac_address)s, %(network_activity)s
-            #         );
-            #     """
-            #     cur.execute(insert_sql, record)
 
         elif event == "exit":
             # Finalize row when process exits
@@ -255,75 +335,160 @@ def insert_usage_record(conn, record):
     finally:
         cur.close()
 
+# def detect_anomalous_application_usage(record, state_cache=None):
+#     if state_cache is None:
+#         state_cache = {}
 
-def detect_anomalous_application_usage(record, state_cache=None):
-    if state_cache is None:
-        state_cache = {}
+#     anomalies = []
+#     proc = record.get("process_name", "").lower()
 
+#     # 1. Sensitive applications
+#     sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
+#     if proc in sensitive_apps:
+#         anomalies.append(f"Sensitive application detected: {proc}")
+
+#     # 2. High CPU / Memory usage
+#     cpu = record.get("cpu_percent", 0) or 0
+#     mem = record.get("memory_percent", 0) or 0
+#     if cpu > 20:
+#         anomalies.append(f"High CPU usage detected ({cpu}%) by {proc}")
+#     if mem > 20:
+#         anomalies.append(f"High memory usage detected ({mem}%) by {proc}")
+
+#     # 3. Suspicious command line
+#     cmdline = record.get("cmdline", "") or ""
+#     cmdline_lower = cmdline.lower()
+#     suspicious_tokens = ["powershell", "wget", "curl", "nc ", "ncat", "base64", "sh -c"]
+#     if any(tok in cmdline_lower for tok in suspicious_tokens):
+#         anomalies.append(f"Suspicious command line for {proc}: {cmdline}")
+
+#     # 4. Unusual parent process
+#     parent = (record.get("parent_name") or "").lower()
+#     ALLOWED_PARENTS = {
+#         "bash", "zsh", "gnome-shell", "explorer.exe", "init",
+#         "systemd", "brave-browser", "firefox", "chrome", "code","oosplash",         
+#         "soffice.bin"  
+#     }
+#     if parent and parent not in ALLOWED_PARENTS:
+#         anomalies.append(f"Unusual parent process: {parent} launched {proc}")
+
+#     # 5. Unexpected network activity
+#     if record.get("network_activity") and proc not in ("firefox", "brave", "chrome", "edge"):
+#         anomalies.append(f"Unexpected network activity by {proc}")
+
+#     # 6. Odd-hour execution (before 5AM or after 7PM)
+#     try:
+#         ts = record.get("timestamp")
+#         ts = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
+#         if ts and (ts.hour < 5 or ts.hour > 19):
+#             anomalies.append(f"Unusual execution time: {ts.hour}:00 for {proc}")
+#     except Exception:
+#         pass
+
+#     # 7. Frequency-based anomalies (more than 3 launches/min)
+#     now = datetime.now()
+#     history = state_cache.setdefault(proc, [])
+#     history.append(now)
+
+#     # retain only last 60 seconds
+#     state_cache[proc] = [t for t in history if (now - t).seconds < 60]
+
+#     if len(state_cache[proc]) > 3:
+#         anomalies.append(f"Frequent launches of {proc} detected ({len(state_cache[proc])}/min)")
+
+#     return anomalies or None
+
+def detect_anomalous_application_usage(record, state_cache):
     anomalies = []
 
-    # 1. Sensitive apps
-    sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
-    if record.get("process_name", "").lower() in sensitive_apps:
-        anomalies.append(f"Sensitive application detected: {record['process_name']}")
+    proc = (record.get("process_name") or "").lower()
+    parent = (record.get("parent_name") or "").lower()
+    cmdline = (record.get("cmdline") or "").lower()
 
-    # 2. High CPU/memory
-    cpu = record.get("cpu_percent", 0) or 0
-    mem = record.get("memory_percent", 0) or 0
-    if cpu > 20:
-        anomalies.append(f"High CPU usage detected ({cpu}%) by {record['process_name']}")
-    if mem > 20:
-        anomalies.append(f"High memory usage detected ({mem}%) by {record['process_name']}")
+    # Load config values
+    freq_window = ANOMALY_CONFIG.get("frequency_window_sec", 60)
+    freq_threshold = ANOMALY_CONFIG.get("frequency_threshold", 3)
+
+    high_cpu_thr = ANOMALY_CONFIG.get("high_cpu_threshold", 20)
+    high_mem_thr = ANOMALY_CONFIG.get("high_memory_threshold", 20)
+
+    odd_hour_start = ANOMALY_CONFIG.get("odd_hour_start", 19)
+    odd_hour_end   = ANOMALY_CONFIG.get("odd_hour_end", 5)
+
+    sensitive_apps = set(ANOMALY_CONFIG.get("sensitive_apps", []))
+    suspicious_tokens = ANOMALY_CONFIG.get("suspicious_tokens", [])
+    allowed_parents  = set(ANOMALY_CONFIG.get("allowed_parents", []))
+
+    # 1. Sensitive apps
+    if proc in sensitive_apps:
+        anomalies.append(f"Sensitive application detected: {proc}")
+
+    # 2. High CPU / Memory
+    cpu = record.get("cpu_percent") or 0
+    mem = record.get("memory_percent") or 0
+
+    if cpu > high_cpu_thr:
+        anomalies.append(f"High CPU usage detected ({cpu}%) by {proc}")
+
+    if mem > high_mem_thr:
+        anomalies.append(f"High memory usage detected ({mem}%) by {proc}")
 
     # 3. Suspicious command line
-    cmdline = record.get("cmdline", "")
-    if cmdline:
-        cmdline_lower = cmdline.lower()
-        suspicious_tokens = ["powershell", "wget", "curl", "nc ", "ncat", "base64", "sh -c"]
-        if any(tok in cmdline_lower for tok in suspicious_tokens):
-            anomalies.append(f"Suspicious command line for {record['process_name']}: {cmdline}")
+    if any(tok in cmdline for tok in suspicious_tokens):
+        anomalies.append(f"Suspicious command line for {proc}: {cmdline}")
 
     # 4. Unusual parent process
-    parent = record.get("parent_name", "").lower()
-    proc = record.get("process_name", "").lower()
-    if parent and parent not in ("bash", "zsh", "gnome-shell", "explorer.exe", "init"):
+    if parent and parent not in allowed_parents:
         anomalies.append(f"Unusual parent process: {parent} launched {proc}")
 
     # 5. Unexpected network activity
-    if record.get("network_activity"):
-        if proc not in ("firefox", "brave", "chrome", "edge"):
-            anomalies.append(f"Unexpected network activity by {record['process_name']}")
+    if record.get("network_activity") and proc not in ("firefox", "brave", "chrome", "edge"):
+        anomalies.append(f"Unexpected network activity by {proc}")
 
     # 6. Odd-hour execution
+    ts = record.get("timestamp")
     try:
-        ts = record.get("timestamp")
         ts = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
-        if ts and (ts.hour < 5 or ts.hour > 19):
-            anomalies.append(f"Unusual execution time: {ts.hour}:00 for {record['process_name']}")
-    except Exception:
-        pass
+    except:
+        ts = None
 
-    # 7. Frequency-based anomaly
-    now = datetime.now()
-    history = state_cache.setdefault(proc, [])
-    history.append(now)
-    state_cache[proc] = [t for t in history if (now - t).seconds < 60]
-    if len(state_cache[proc]) > 3:
-        anomalies.append(f"Frequent launches of {proc} detected ({len(state_cache[proc])}/min)")
+    if ts:
+        if ts.hour > odd_hour_start or ts.hour < odd_hour_end:
+            anomalies.append(f"Unusual execution time: {ts.hour}:00 for {proc}")
 
-    return anomalies if anomalies else None
+    # 7. Frequency-based anomaly (config-driven)
+    if record.get("event") == "launch":
+        now = datetime.now()
+        history = state_cache.setdefault(proc, [])
+        history.append(now)
+
+        # keep only recent events in window
+        state_cache[proc] = [t for t in history if (now - t).seconds < freq_window]
+
+        if len(state_cache[proc]) > freq_threshold:
+            anomalies.append(
+                f"Frequent launches of {proc} detected ({len(state_cache[proc])}/{freq_window}s)"
+            )
+    return anomalies or None
 
 
 def insert_latency_record(conn, record):
     cur = conn.cursor()
+
     insert_sql = """
         INSERT INTO latency_monitoring (
-            username, 
-            cpu_percent, 
-            memory_percent, 
+            kernel_worst_latency_ms,
+            kernel_avg_latency_ms,
+            sched_avg_delay_ms,
+            rt_min_latency_us,
+            rt_avg_latency_us,
+            rt_max_latency_us,
+            username,
+            cpu_percent,
+            memory_percent,
             startup_latency,
-            response_time, 
-            io_wait_time, 
+            response_time,
+            io_wait_time,
             disk_read_rate,
             disk_write_rate,
             load_average,
@@ -331,14 +496,21 @@ def insert_latency_record(conn, record):
             network_bytes_recv,
             context_switches,
             system_temperature,
-            timestamp
+            timestamp,
+            aggregation_type       -- ADD THIS
         ) VALUES (
-            %(username)s, 
-            %(cpu_percent)s, 
-            %(memory_percent)s, 
+            %(kernel_worst_latency_ms)s,
+            %(kernel_avg_latency_ms)s,
+            %(sched_avg_delay_ms)s,
+            %(rt_min_latency_us)s,
+            %(rt_avg_latency_us)s,
+            %(rt_max_latency_us)s,
+            %(username)s,
+            %(cpu_percent)s,
+            %(memory_percent)s,
             %(startup_latency)s,
-            %(response_time)s, 
-            %(io_wait_time)s, 
+            %(response_time)s,
+            %(io_wait_time)s,
             %(disk_read_rate)s,
             %(disk_write_rate)s,
             %(load_average)s,
@@ -346,36 +518,31 @@ def insert_latency_record(conn, record):
             %(network_bytes_recv)s,
             %(context_switches)s,
             %(system_temperature)s,
-            %(timestamp)s
+            %(timestamp)s,
+            %(aggregation_type)s     -- ADD THIS
         );
     """
 
-    # Ensure optional fields are present
-    for field in [
-        "startup_latency", "response_time", "io_wait_time", 
-        "disk_read_rate", "disk_write_rate", "load_average", 
-        "network_bytes_sent", "network_bytes_recv", "context_switches", 
-        "system_temperature"
-    ]:
-        record.setdefault(field, None)
 
-    try:
-        cur.execute(insert_sql, record)
-        conn.commit()
-    except Exception as e:
-        logging.error(f"Failed to insert latency record: {e}\nData: {record}")
-        conn.rollback()
-    finally:
-        cur.close()
+    cur.execute(insert_sql, record)
+    conn.commit()
+    cur.close()
+
+STATE_CACHE = {}
 
 
-# def main():
 def main(stop_event=None):
     conn = psycopg2.connect(**DB_CONFIG)
     ensure_table(conn)  # Ensure the application usage table exists
     create_latency_monitoring_table(conn)  # Ensure the latency monitoring table exists
     print("\033[1;92m!!!!!!!!! Application usage Consumer running (UDP) !!!!!!\033[0m")
 
+    threading.Thread(
+        target=hourly_latency_aggregator,
+        args=(conn,),
+        daemon=True
+    ).start()
+    
     # Helper: normalize datetimes before JSON
     def normalize_record(rec):
         return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in rec.items()}
@@ -409,7 +576,8 @@ def main(stop_event=None):
                     insert_usage_record(conn, record)
 
                 # Check anomalous application usage
-                anomalies = detect_anomalous_application_usage(record)
+                # anomalies = detect_anomalous_application_usage(record)
+                anomalies = detect_anomalous_application_usage(record, STATE_CACHE)
                 if anomalies:
                     for reason in anomalies:
                         # Normalize timestamp for anomaly
@@ -446,7 +614,35 @@ def main(stop_event=None):
                             logging.error(f"Error during database/siem operation: {e}")
 
         # Insert latency data from the same producer message
+        # latency_record = {
+        #     "username":           metrics.get("username"),
+        #     "cpu_percent":        metrics.get("cpu_usage"),
+        #     "memory_percent":     metrics.get("memory_usage"),
+        #     "startup_latency":    metrics.get("startup_latency"),
+        #     "response_time":      metrics.get("response_time"),
+        #     "io_wait_time":       metrics.get("io_wait_time"),
+        #     "disk_read_rate":     metrics.get("disk_read_rate"),
+        #     "disk_write_rate":    metrics.get("disk_write_rate"),
+        #     "load_average":       metrics.get("avg_load"),
+        #     "network_bytes_sent": metrics.get("network_bytes_sent"),
+        #     "network_bytes_recv": metrics.get("network_bytes_recv"),
+        #     "context_switches":   metrics.get("context_switches"),
+        #     "system_temperature": metrics.get("system_temperature"),
+        #     "timestamp":          metrics.get("timestamp") if metrics.get("timestamp") else datetime.now().isoformat()
+        # }
         latency_record = {
+            "kernel_worst_latency_ms": metrics["kernel_latency"].get("worst_latency_ms"),
+            "kernel_avg_latency_ms":   metrics["kernel_latency"].get("average_latency_ms"),
+            # "kernel_top_event":        metrics["kernel_latency"].get("top_event"),
+
+            "sched_avg_delay_ms":  metrics["scheduling_latency"].get("avg_delay_ms"),
+            # "sched_max_delay_ms":  metrics["scheduling_latency"].get("max_delay_ms"),
+            # "sched_sample_count":  metrics["scheduling_latency"].get("sample_count"),
+
+            "rt_min_latency_us":  metrics["realtime_latency"].get("min_latency_us"),
+            "rt_avg_latency_us":  metrics["realtime_latency"].get("avg_latency_us"),
+            "rt_max_latency_us":  metrics["realtime_latency"].get("max_latency_us"),
+
             "username":           metrics.get("username"),
             "cpu_percent":        metrics.get("cpu_usage"),
             "memory_percent":     metrics.get("memory_usage"),
@@ -460,8 +656,10 @@ def main(stop_event=None):
             "network_bytes_recv": metrics.get("network_bytes_recv"),
             "context_switches":   metrics.get("context_switches"),
             "system_temperature": metrics.get("system_temperature"),
-            "timestamp":          metrics.get("timestamp") if metrics.get("timestamp") else datetime.now().isoformat()
+            "timestamp":          metrics.get("timestamp") or datetime.now().isoformat()
+            
         }
+        latency_record["aggregation_type"] = "realtime"
 
         insert_latency_record(conn, latency_record)
 

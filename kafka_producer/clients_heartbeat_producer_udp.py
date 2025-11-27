@@ -55,7 +55,7 @@ def send_shutdown():
                 "status": "inactive"
             }
             s.sendto(json.dumps(msg).encode(), (UDP_IP, UDP_PORT))
-            print(f"[UEBA Client] Sent shutdown heartbeat for {client_id}")
+            # print(f"[UEBA Client] Sent shutdown heartbeat for {client_id}")
     except Exception as e:
         print(f"[UEBA Client] Failed to send shutdown heartbeat: {e}")
 

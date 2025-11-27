@@ -108,93 +108,6 @@ def detect_suspicious_process(record):
     return anomalies
 
 
-# def insert_process_record(conn, record, metrics):
-
-#     cur = conn.cursor()
-
-#     insert_sql = """
-#         INSERT INTO process_monitoring (
-#             event, username, process_name, pid, ppid, cmdline, terminal,
-#             is_interactive, is_likely_user_process, likely_background_loop,
-#             start_time, end_time, execution_duration, timestamp, parent_name
-#         ) VALUES (
-#             %(event)s, %(user)s, %(process_name)s, %(pid)s, %(ppid)s, %(cmdline)s, %(terminal)s,
-#             %(is_interactive)s, %(is_likely_user_process)s, %(likely_background_loop)s,
-#             %(start_time)s, %(end_time)s, %(execution_duration)s, %(timestamp)s, %(parent_name)s
-#         );
-#     """
-
-#     # Ensure optional fields have defaults
-#     for field in ["end_time", "execution_duration"]:
-#         record.setdefault(field, None)
-
-#     try:
-#         cur.execute(insert_sql, {
-#             "event": record.get("event"),
-#             "user": record.get("user"),
-#             "process_name": record.get("process_name"),
-#             "pid": record.get("pid"),
-#             "ppid": record.get("ppid"),
-#             "cmdline": ' '.join(record.get("cmdline", [])) if isinstance(record.get("cmdline"), list) else record.get("cmdline"),
-#             "terminal": record.get("terminal"),
-#             "is_interactive": record.get("is_interactive"),
-#             "is_likely_user_process": record.get("is_likely_user_process"),
-#             "likely_background_loop": record.get("likely_background_loop"),
-#             "start_time": record.get("start_time"),
-#             "end_time": record.get("end_time"),
-#             "execution_duration": record.get("execution_duration"),
-#             "timestamp": record.get("timestamp"),
-#             "parent_name": record.get("parent_name")
-#         })
-#         conn.commit()
-#     except Exception as e:
-#         LOG.error(f"[ERROR] Failed to insert process record: {e}\nData: {json.dumps(record, indent=2)}")
-#         conn.rollback()
-#     finally:
-#         cur.close()
-
-#     # ─── Suspicious process detection ───
-#     suspicious_anomalies = detect_suspicious_process(record)
-#     if suspicious_anomalies:
-#         for anomaly in suspicious_anomalies:
-#             anomaly["Event Type"] = "PROCESS_MONITORING"
-#             anomaly["Event Sub Type"] = "PROCESS_STARTED"
-#             alert_data = {
-#                 "user_id": record.get("user") or metrics.get("username", "unknown"),
-#                 # "timestamp": anomaly.get("timestamp"),
-#                 # "timestamp": anomaly.get("timestamp").isoformat() if isinstance(anomaly.get("timestamp"), datetime) else str(anomaly.get("timestamp")),
-#                 "timestamp": (anomaly.get("timestamp") or datetime.now(timezone.utc)).isoformat(),
-#                 "Event Type": anomaly["Event Type"],
-#                 "Event Sub Type": anomaly["Event Sub Type"],
-#                 # "event_type": anomaly.get("Event Type", "PROCESS_MONITORING"),
-#                 # "event_subtype": anomaly.get("Event Sub Type", "PROCESS_STARTED"),
-#                 "severity": "Medium",
-#                 "attacker_info": "N/A",
-#                 "component": "Process Monitoring",
-#                 "resource": record.get("process_name") or "unknown",
-#                 "event_reason": anomaly.get("Event Details", ""),
-#                 "device_ip": next(iter(metrics.get("ip_addresses", [])), "127.0.0.1"),
-#                 "device_mac": metrics.get("mac_address", "unknown"),
-#                 "log_text": anomaly.get("Event Details", ""),
-#                 "risk_score": 5,  # or calculate based on logic
-#                 "anomalies": [anomaly],
-#                 "metrics": {
-#                     "cmdline": record.get("cmdline"),
-#                     "pid": record.get("pid"),
-#                     "ppid": record.get("ppid"),
-#                     "parent_name": record.get("parent_name"),
-#                     "process_name": record.get("process_name")
-#                 }
-                
-#             }
-#             # print("\n[DEBUG] Sending Anomaly Alert to SIEM:")
-#             pprint.pprint(alert_data)
-#             try:
-#                 store_anomaly_to_database_and_siem(json.dumps(alert_data))  
-#             except Exception as e:
-#                 LOG.error(f"[ERROR] Failed to log/send anomaly: {e}")
-
-
 def insert_process_record(conn, record, metrics):
     """
     Insert a single process lifecycle record into process_monitoring table.
@@ -310,8 +223,11 @@ def main(stop_event=None):
 
 
         # Only process system-metrics events
-        if metrics.get("topic") != "system-metrics":
+        # if metrics.get("topic") != "system-metrics":
+        #     continue
+        if metrics.get("topic") != "process-monitoring":
             continue
+
 
         events = metrics.get("process_events", [])
         if not events:

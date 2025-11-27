@@ -53,10 +53,6 @@ import atexit
 
 ###################UEBA_1:: User Session Tracking########################
 
-
-
-
-
 # === Configuration ===
 CONFIG_PATH = "/home/config.json"
 with open(CONFIG_PATH, "r") as f:
@@ -64,7 +60,8 @@ with open(CONFIG_PATH, "r") as f:
 
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
-SCAN_INTERVAL = 5  # seconds
+# SCAN_INTERVAL = 5  # seconds
+SCAN_INTERVAL= config["SCAN_INTERVAL"]
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
@@ -136,27 +133,45 @@ LOGIN_STATE = {}
 def log(msg):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
 
+
 def get_system_info():
     interfaces = psutil.net_if_addrs()
+
     macs = []
     active_mac = None
     lan_ip = None
 
+    # Interfaces to ignore
+    ignore_prefixes = ("lo", "docker", "br-", "veth", "vmnet", "virbr")
+
     for iface, addrs in interfaces.items():
+
+        # Skip virtual/adapters
+        if iface.startswith(ignore_prefixes):
+            continue
+
         mac = None
         ip = None
 
         for addr in addrs:
             if addr.family == psutil.AF_LINK:
                 mac = addr.address
-            elif addr.family == socket.AF_INET and not addr.address.startswith("127."):
+            elif addr.family == socket.AF_INET:
+                # Skip loopback, docker subnets
+                if addr.address.startswith("127."):
+                    continue
+                if addr.address.startswith("172.17.") or addr.address.startswith("172.18."):
+                    continue
                 ip = addr.address
 
-        if mac and mac != '00:00:00:00:00:00':
+        # If this interface has a real MAC & real IP → use it
+        if mac and mac != "00:00:00:00:00:00":
             macs.append(mac)
-            if ip and not lan_ip:
-                lan_ip = ip
-                active_mac = mac
+            if ip:
+                # First real LAN IP wins
+                if lan_ip is None:
+                    lan_ip = ip
+                    active_mac = mac
 
     return {
         "hostname": socket.gethostname(),
@@ -164,23 +179,40 @@ def get_system_info():
         "active_mac": active_mac or "00:00:00:00:00:00",
         "lan_ip": lan_ip or "Unknown",
         "source_os": f"{platform.system()} {platform.release()}"
-        
-        # "os": platform.system(),
-        # "auth_type": "local"
-        
     }
 
+# def get_wtmp_active_sessions():
+#     """
+#     Returns a set of (username, login_time) pairs that are currently 'still logged in'
+#     according to wtmp / last -F. Much more reliable for GUI logout detection.
+#     """
+#     sessions = set()
+#     try:
+#         out = subprocess.run(["last", "-F", "-n", "200"],
+#                              capture_output=True, text=True, timeout=2).stdout
+#         for line in out.splitlines():
+#             if "still logged in" not in line:
+#                 continue
 
+#             parts = line.split()
+#             if len(parts) < 10:
+#                 continue
 
-# producer = KafkaProducer(
-#     bootstrap_servers=BOOTSTRAP_SERVER,
-#     value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-#     acks='all'
-# )
+#             username = parts[0]
+#             # Find timestamp inside line
+#             m = re.search(r"\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4}", line)
+#             if not m:
+#                 continue
 
+#             login_time = datetime.strptime(m.group(0), "%a %b %d %H:%M:%S %Y")
+#             login_time = login_time.strftime("%Y-%m-%d %H:%M:%S")
 
-# def get_current_users():
-#     return {user.name: user.started for user in psutil.users()}
+#             sessions.add((username, login_time))
+#     except Exception:
+#         pass
+
+#     return sessions
+
 
 def get_source_os():
     system_name = platform.system()
@@ -240,54 +272,6 @@ def get_current_login_from_last(username, terminal):
 
 shutdown_handled = False  # Global flag (ensure this is at the top with your globals)
 
-
-# def handle_shutdown_signal(signum=None, frame=None):
-#     global LOGIN_STATE, shutdown_handled
-#     if shutdown_handled:
-#         return
-#     shutdown_handled = True
-
-#     now = datetime.now()
-#     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-
-#     for (username, terminal, remote_ip), started_epoch in LOGIN_STATE.items():
-#         logout_time = time.time()
-#         duration = int(logout_time - started_epoch)
-#         last_login_time = get_last_login(username)
-
-#         is_remote = remote_ip not in ("", "Unknown", "localhost", "127.0.0.1", "127.0.1.1")
-#         auth_type = "ssh" if is_remote else "local"
-
-#         system_info = get_system_info()
-#         # geo_info = get_geolocation()
-#         source_mac = get_mac_address(remote_ip)
-#         source_hostname = resolve_hostname(remote_ip)
-
-#         msg = {
-#             "topic": "login-events",
-#             "event_type": "logout",
-#             "username": username,
-#             "login_time": datetime.fromtimestamp(started_epoch).strftime("%Y-%m-%d %H:%M:%S"),
-#             "logout_time": now_str,
-#             "last_login_time": last_login_time,
-#             "session_duration_seconds": duration,
-#             "timestamp": now_str,
-#             "remote_ip": remote_ip,
-#             "auth_type": auth_type,
-#             "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
-#             "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
-#             **system_info,
-#             # **geo_info,
-#         }
-
-#         msg["source_os"] = get_source_os()
-#         print(f"[DEBUG LOGOUT MSG] {json.dumps(msg, indent=2)}")
-
-#         # send via UDP instead of Kafka
-#         sock.sendto(json.dumps(msg).encode("utf-8"), (UDP_IP, UDP_PORT))
-
-#     sys.exit(0)
-
 def handle_shutdown_signal(signum=None, frame=None, exit_after=True):
     global LOGIN_STATE, shutdown_handled
     if shutdown_handled:
@@ -345,6 +329,9 @@ def main():
 
     while True:
         try:
+            if os.path.exists("/run/systemd/shutdown/scheduled"):
+                handle_shutdown_signal()
+                
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_users = get_current_users()
             recent_remote_ips = get_recent_remote_logins()
@@ -470,8 +457,14 @@ def main():
             break
         except Exception as e:
             log(f"[ERROR] {e}")
-            time.sleep(5)
+            time.sleep(SCAN_INTERVAL)
 
+### TO test abnormalities ###
+# INSERT INTO abnormal_login_logout_config (start_time, end_time)
+# VALUES (
+#     '2025-02-14 15:00:00',
+#     '2025-02-14 18:00:00'
+# );
 
 
 def send_test_events():
@@ -560,8 +553,25 @@ if __name__ == "__main__":
     # Register shutdown signal handlers
     signal.signal(signal.SIGTERM, handle_shutdown_signal)
     signal.signal(signal.SIGINT, handle_shutdown_signal)  # for Ctrl+C
+    signal.signal(signal.SIGHUP, handle_shutdown_signal)
 
+    # # === Extra signals to catch GUI logout / reboot / shutdown ===
+    # if hasattr(signal, "SIGUSR1"):
+    #     signal.signal(signal.SIGUSR1, handle_shutdown_signal)
+
+    # if hasattr(signal, "SIGPWR"):
+    #     signal.signal(signal.SIGPWR, handle_shutdown_signal)
+
+    # # systemd user session stop (very reliable for GUI logout)
+    # SIGRTMIN = getattr(signal, "SIGRTMIN", 34)
+    # try:
+    #     signal.signal(SIGRTMIN + 3, handle_shutdown_signal)
+    # except Exception:
+    #     pass
+
+    
     # Optional: also register for clean exit when script ends
     atexit.register(handle_shutdown_signal, None, None)
+    # threading.Thread(target=watch_auth_log, daemon=True).start()
 
     main()

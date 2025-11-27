@@ -37,7 +37,7 @@ hiddenimports = [
     'kafka_consumer.config_consumer',
 
     # root-level modules
-    'api_server',
+    'api_server',ueba_server
     'db_connector',
 
     # subpackages

@@ -145,100 +145,6 @@ def get_num_open_windows():
         return 0
 
 
-
-
-# # Start with an old time so only new failures are counted after first run
-# last_checked_time = datetime.now(timezone.utc)
-
-# def get_failed_logins(
-#     log_file: str = "/var/log/auth.log",
-#     tail_lines: int = 200
-# ) -> int:
-#     """
-#     Reads the auth.log to count failed login attempts since the last function call.
-#     Uses tail to efficiently read only the most recent lines.
-#     Returns: total number of failed login attempts
-#     """
-#     global last_checked_time
-
-#     now_utc = datetime.now(timezone.utc)
-#     local_tz = datetime.now().astimezone().tzinfo
-#     current_time = now_utc
-
-#     # Regex patterns for timestamps
-#     iso_re = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})")
-#     syslog_re = re.compile(r"(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
-
-#     # Patterns for authentication failures
-#     auth_failure_patterns = [
-#         re.compile(r"pam_unix\(.*:auth\):\s+authentication failure"),
-#         re.compile(r"sudo:.* authentication failure"),
-#         re.compile(r"sshd\[\d+\]: Failed password for"),
-#         re.compile(r"Failed password for .* from .* port \d+ ssh2"),
-#     ]
-
-#     try:
-#         out = subprocess.check_output(
-#             ["tail", "-n", str(tail_lines), log_file],
-#             text=True,
-#             stderr=subprocess.DEVNULL,
-#             timeout=1
-#         )
-#     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-#         print("Could not read log file")
-#         return 0
-
-#     failed_attempts = 0
-#     max_ts = last_checked_time
-
-#     for line in out.splitlines():
-#         ts = None
-
-#         # Try ISO timestamp first
-#         m1 = iso_re.search(line)
-#         if m1:
-#             try:
-#                 ts = datetime.fromisoformat(m1.group(1)).astimezone(timezone.utc)
-#             except ValueError:
-#                 print("Failed to parse ISO timestamp in line:", line)
-#                 continue
-#         # Fallback to syslog
-#         else:
-#             m2 = syslog_re.match(line)
-#             if m2:
-#                 mon, day, timestr = m2.groups()
-#                 year = now_utc.year
-#                 try:
-#                     dt_naive = datetime.strptime(
-#                         f"{year} {mon} {int(day):02d} {timestr}",
-#                         "%Y %b %d %H:%M:%S"
-#                     )
-#                     ts = dt_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
-#                 except ValueError:
-#                     # print("Failed to parse syslog timestamp in line:", line)
-#                     continue
-
-#         # print("Line TS:", ts, "| last_checked_time:", last_checked_time, "| current_time:", current_time)
-#         # if ts and last_checked_time < ts <= current_time: #Added on 15 sept by simar
-#         if ts and ts > last_checked_time and ts <= current_time:
-#             for pattern in auth_failure_patterns:
-#                 if pattern.search(line):
-#                     # print("[MATCH]", pattern.pattern, "=>", line)
-#                     failed_attempts += 1
-#                     if ts > max_ts:
-#                         max_ts = ts
-#                     break  # Prevent double counting
-
-#     # Always update the last_checked_time to the latest we saw
-#     if max_ts > last_checked_time:
-#         last_checked_time = max_ts
-#     else:
-#         last_checked_time = current_time
-
-#     # print("Returning", failed_attempts, "failed login attempts")
-#     return failed_attempts
-
-# Start with None so we can cleanly baseline on first call
 last_checked_time = None
 
 def get_failed_logins(
@@ -246,8 +152,12 @@ def get_failed_logins(
     tail_lines: int = 200
 ) -> int:
     """
-    Count only *new* failed login attempts since last call.
-    Returns the number of new failures detected.
+    Return ONLY the number of *new* failed login attempts since last call.
+    No cumulative counter is kept here.
+    Detects:
+      - Failed password attempts
+      - Empty password attempts (PAM authentication failure)
+      - 'Failed none for <user>' events
     """
     global last_checked_time
 
@@ -255,19 +165,25 @@ def get_failed_logins(
     local_tz = datetime.now().astimezone().tzinfo
     current_time = now_utc
 
-    # First ever call → just baseline, return 0 (no backcounting)
+    # First ever call → set baseline, return 0
     if last_checked_time is None:
         last_checked_time = current_time
         return 0
 
-    # Regex for syslog timestamps
+    # Timestamp regex
     iso_re    = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})")
     syslog_re = re.compile(r"(\w{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
 
-    # Canonical SSHD failed login line
+    # SSH failed login detection patterns
     ssh_fail_re = re.compile(
-        r"sshd\[\d+\]:\s*Failed password for (?:invalid user )?\S+ from [0-9A-Fa-f\.:]+"
+        r"(Failed password for (?:invalid user )?\S+ from [0-9A-Fa-f\.:]+)"
+        r"|"
+        r"(Permission denied \(publickey,password\))"
     )
+
+    # NEW: empty password & PAM failures
+    pam_fail_re = re.compile(r"authentication failure;.*sshd")
+    failed_none_re = re.compile(r"Failed none for")
 
     try:
         out = subprocess.check_output(
@@ -276,23 +192,24 @@ def get_failed_logins(
             stderr=subprocess.DEVNULL,
             timeout=1
         )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    except Exception:
         return 0
 
-    failed_attempts = 0
+    new_failures = 0
     max_ts = last_checked_time
 
     for line in out.splitlines():
         ts = None
 
-        # Try ISO timestamp first
+        # Parse ISO timestamps first
         m1 = iso_re.search(line)
         if m1:
             try:
                 ts = datetime.fromisoformat(m1.group(1)).astimezone(timezone.utc)
-            except ValueError:
+            except:
                 continue
         else:
+            # Fallback: syslog (Mon DD HH:MM:SS)
             m2 = syslog_re.match(line)
             if m2:
                 mon, day, timestr = m2.groups()
@@ -303,19 +220,27 @@ def get_failed_logins(
                         "%Y %b %d %H:%M:%S"
                     )
                     ts = dt_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
-                except ValueError:
+                except:
                     continue
 
-        # Count only new failures since last_checked_time
-        if ts and last_checked_time < ts <= current_time:
-            if ssh_fail_re.search(line):
-                failed_attempts += 1
+        if not ts:
+            continue
+
+        # Count only NEW failures since last call
+        if last_checked_time < ts <= current_time:
+            if (
+                ssh_fail_re.search(line)
+                or pam_fail_re.search(line)
+                or failed_none_re.search(line)
+            ):
+                new_failures += 1
                 if ts > max_ts:
                     max_ts = ts
 
-    # Advance the watermark
-    last_checked_time = max_ts if max_ts > last_checked_time else current_time
-    return failed_attempts
+    # Move watermark forward
+    last_checked_time = max_ts
+
+    return new_failures
 
 
 
@@ -1378,74 +1303,333 @@ def get_disk_io_rate():
 
 
 
-from dateutil import parser as date_parser  # pip install python-dateutil
+from dateutil import parser as date_parser
+import pwd
+
+SYSTEM_USERS = {
+    "root","daemon","bin","sys","sync","games","man","lp","mail","news",
+    "uucp","proxy","www-data","backup","list","irc","gnats","nobody",
+    "systemd-network","systemd-timesync","systemd-resolve","systemd-oom",
+    "messagebus","syslog","usbmux","tss","kernoops","whoopsie","dnsmasq",
+    "avahi","tcpdump","sssd","speech-dispatcher","cups-pk-helper",
+    "fwupd-refresh","saned","geoclue","cups-browsed","hplip",
+    "gnome-remote-desktop","polkitd","rtkit","colord",
+    "gnome-initial-setup","gdm","nm-openvpn","postgres","sshd",
+    "ueva-client","postfix","_flatpak","epmd","rabbitmq",
+    "opensearch","opensearch-dashboards","logstash"
+}
+
+def _user_exists(user: str) -> bool:
+    try:
+        pwd.getpwnam(user)
+        return True
+    except KeyError:
+        return False
+
 
 _script_start_time = datetime.now(timezone.utc)
-_seen_users_file = "/tmp/locked_users_seen.json"
+# _seen_users_file = "/tmp/locked_users_seen.json"
 
-def _load_seen_users():
-    if os.path.exists(_seen_users_file):
-        try:
-            with open(_seen_users_file, "r") as f:
-                return set(json.load(f))
-        except Exception:
-            return set()
-    return set()
 
-def _save_seen_users(users):
+# def _load_seen_users():
+#     if os.path.exists(_seen_users_file):
+#         try:
+#             with open(_seen_users_file, "r") as f:
+#                 return set(json.load(f))
+#         except:
+#             return set()
+#     return set()
+
+
+# def _save_seen_users(users):
+#     try:
+#         with open(_seen_users_file, "w") as f:
+#             json.dump(list(users), f)
+#     except:
+#         pass
+
+
+# def get_account_lockouts(
+#     log_file: str = "/var/log/auth.log",
+#     shadow_file: str = "/etc/shadow",
+# ) -> list:
+
+#     locked_users = []
+#     seen_users = _load_seen_users()
+
+#     # --------------------------------------------------------
+#     # 1) PRIMARY: /etc/shadow (REAL lock state)
+#     # --------------------------------------------------------
+#     try:
+#         with open(shadow_file, "r", errors="ignore") as sf:
+#             for line in sf:
+#                 parts = line.split(":")
+#                 if len(parts) < 2:
+#                     continue
+
+#                 user, pwd_field = parts[0], parts[1]
+
+#                 # Ignore system/service accounts
+#                 if user in SYSTEM_USERS:
+#                     continue
+
+#                 # Skip users who no longer exist
+#                 if not _user_exists(user):
+#                     continue
+
+#                 # Only detect NEW lockouts
+#                 if pwd_field.startswith("!"):  
+
+#                     # Ignore users locked before program start
+#                     try:
+#                         last_changed_days = int(parts[2])
+#                         last_changed_date = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=last_changed_days)
+
+#                         if last_changed_date < _script_start_time:
+#                             continue
+#                     except:
+#                         pass
+
+#                     # Now it's a NEW lockout
+#                     if user not in seen_users:
+#                         seen_users.add(user)
+#                         locked_users.append(user)
+
+#     except Exception:
+#         pass
+
+#     # --------------------------------------------------------
+#     # 2) FALLBACK: AUTH.LOG EVENTS
+#     # --------------------------------------------------------
+
+#     passwd_patterns = [
+#         r"password for '([^']+)' changed by 'root'",
+#         r"COMMAND=.*passwd\s+-l\s+([A-Za-z0-9_.-]+)",
+#     ]
+
+#     extra_patterns = [
+#         r"pam_faillock.*user\s+([A-Za-z0-9_.-]+)\s+locked",
+#         r"pam_tally2.*user\s+([A-Za-z0-9_.-]+)\s+account locked",
+#         r"maximum authentication attempts exceeded for\s+([A-Za-z0-9_.-]+)",
+#         r"account temporarily locked.*user\s+([A-Za-z0-9_.-]+)",
+#     ]
+
+#     def _extract_timestamp(line: str):
+#         m_iso = re.match(r"^(\d{4}-\d{2}-\d{2}T[^\s]+)", line)
+#         ts_str = m_iso.group(1) if m_iso else None
+
+#         if not ts_str:
+#             m_sys = re.match(r"^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})", line)
+#             ts_str = m_sys.group(1) if m_sys else None
+
+#         if not ts_str:
+#             return None
+
+#         try:
+#             return date_parser.parse(ts_str).astimezone(timezone.utc)
+#         except:
+#             return None
+
+#     try:
+#         with open(log_file, "r", errors="ignore") as lf:
+#             for line in lf:
+
+#                 # passwd -l or password changes
+#                 if any(re.search(p, line) for p in passwd_patterns):
+#                     log_time = _extract_timestamp(line)
+#                     if not log_time or log_time < _script_start_time:
+#                         continue
+
+#                     user = None
+#                     m1 = re.search(passwd_patterns[0], line)
+#                     if m1: user = m1.group(1)
+#                     m2 = re.search(passwd_patterns[1], line)
+#                     if m2: user = m2.group(1)
+
+#                     if not user or user in SYSTEM_USERS:
+#                         continue
+
+#                     if _user_exists(user) and user not in seen_users:
+#                         seen_users.add(user)
+#                         locked_users.append(user)
+
+#                 # faillock, tally2, sshd lockouts
+#                 for pat in extra_patterns:
+#                     m = re.search(pat, line)
+#                     if not m:
+#                         continue
+
+#                     user = m.group(1)
+#                     if user in SYSTEM_USERS:
+#                         continue
+
+#                     log_time = _extract_timestamp(line)
+#                     if not log_time or log_time < _script_start_time:
+#                         continue
+
+#                     if _user_exists(user) and user not in seen_users:
+#                         seen_users.add(user)
+#                         locked_users.append(user)
+
+#     except:
+#         pass
+
+#     _save_seen_users(seen_users)
+#     return locked_users
+
+
+from dateutil import parser as date_parser
+import pwd
+import re
+from datetime import datetime, timedelta, timezone
+
+
+# System/service accounts that should NEVER trigger lockout events
+SYSTEM_USERS = {
+    "root","daemon","bin","sys","sync","games","man","lp","mail","news",
+    "uucp","proxy","www-data","backup","list","irc","gnats","nobody",
+    "systemd-network","systemd-timesync","systemd-resolve","systemd-oom",
+    "messagebus","syslog","usbmux","tss","kernoops","whoopsie","dnsmasq",
+    "avahi","tcpdump","sssd","speech-dispatcher","cups-pk-helper",
+    "fwupd-refresh","saned","geoclue","cups-browsed","hplip",
+    "gnome-remote-desktop","polkitd","rtkit","colord",
+    "gnome-initial-setup","gdm","nm-openvpn","postgres","sshd",
+    "ueva-client","postfix","_flatpak","epmd","rabbitmq",
+    "opensearch","opensearch-dashboards","logstash"
+}
+
+
+def _user_exists(user: str) -> bool:
     try:
-        with open(_seen_users_file, "w") as f:
-            json.dump(list(users), f)
+        pwd.getpwnam(user)
+        return True
+    except KeyError:
+        return False
+
+
+# Used to ignore lockouts that existed before the program started
+_script_start_time = datetime.now(timezone.utc)
+
+
+def get_account_lockouts(
+    log_file: str = "/var/log/auth.log",
+    shadow_file: str = "/etc/shadow",
+) -> list:
+
+    locked_users = []
+
+    # --------------------------------------------------------
+    # 1) PRIMARY: Check /etc/shadow for accounts newly locked
+    # --------------------------------------------------------
+    try:
+        with open(shadow_file, "r", errors="ignore") as sf:
+            for line in sf:
+                parts = line.split(":")
+                if len(parts) < 2:
+                    continue
+
+                user, pwd_field = parts[0], parts[1]
+
+                if user in SYSTEM_USERS:
+                    continue
+
+                if not _user_exists(user):
+                    continue
+
+                # If password starts with '!' → locked
+                if pwd_field.startswith("!"):
+                    # Determine WHEN the password was changed
+                    try:
+                        last_changed_days = int(parts[2])
+                        last_changed_date = datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=last_changed_days)
+
+                        # Ignore locks older than script start
+                        if last_changed_date < _script_start_time:
+                            continue
+                    except:
+                        pass
+
+                    locked_users.append(user)
+
     except Exception:
         pass
 
+    # --------------------------------------------------------
+    # 2) FALLBACK: Detect locks from auth.log
+    # --------------------------------------------------------
+    passwd_patterns = [
+        r"password for '([^']+)' changed by 'root'",
+        r"COMMAND=.*passwd\s+-l\s+([A-Za-z0-9_.-]+)",
+    ]
 
-def get_account_lockouts(log_file: str = "/var/log/auth.log") -> list:
-    """
-    Parse log file for account lockouts using ISO timestamps.
-    Return list of usernames that were locked after script start time.
-    """
-    locked_users = []
-    seen_users = _load_seen_users()
+    extra_patterns = [
+        r"pam_faillock.*user\s+([A-Za-z0-9_.-]+)\s+locked",
+        r"pam_tally2.*user\s+([A-Za-z0-9_.-]+)\s+account locked",
+        r"maximum authentication attempts exceeded for\s+([A-Za-z0-9_.-]+)",
+        r"account temporarily locked.*user\s+([A-Za-z0-9_.-]+)",
+    ]
+
+    def _extract_timestamp(line: str):
+        m_iso = re.match(r"^(\d{4}-\d{2}-\d{2}T[^\s]+)", line)
+        ts = m_iso.group(1) if m_iso else None
+
+        if not ts:
+            m_sys = re.match(r"^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})", line)
+            ts = m_sys.group(1) if m_sys else None
+
+        if not ts:
+            return None
+
+        try:
+            return date_parser.parse(ts).astimezone(timezone.utc)
+        except:
+            return None
 
     try:
-        with open(log_file, "r") as f:
-            for line in f:
-                if "passwd" in line and (
-                    ("password for '" in line and "changed by 'root'" in line)
-                    or re.search(r"COMMAND=.*passwd\s+-l\s+[\w_.-]+", line)
-                ):
-                    match = re.match(r"^(\d{4}-\d{2}-\d{2}T[^\s]+)", line)
-                    if not match:
-                        continue
-                    
-                    try:
-                        iso_ts = match.group(1)
-                        log_time = date_parser.parse(iso_ts).astimezone(timezone.utc)
-                        if log_time < _script_start_time:
-                            continue
+        with open(log_file, "r", errors="ignore") as lf:
+            for line in lf:
 
-                        # Case A: PAM message "password for 'user' changed by 'root'"
-                        m = re.search(r"password for '([^']+)' changed by 'root'", line)
-                        if m:
-                            user = m.group(1)
-                        else:
-                            # Case B: command match
-                            m2 = re.search(r"COMMAND=.*passwd\s+-l\s+([A-Za-z0-9_.-]+)", line)
-                            user = m2.group(1) if m2 else None
-
-                        if user and user not in seen_users:
-                            seen_users.add(user)
-                            locked_users.append(user)
-
-                    except Exception:
+                # passwd lock events
+                if any(re.search(p, line) for p in passwd_patterns):
+                    log_time = _extract_timestamp(line)
+                    if not log_time or log_time < _script_start_time:
                         continue
 
-    except (FileNotFoundError, PermissionError):
-        return []
+                    user = None
+                    m1 = re.search(passwd_patterns[0], line)
+                    if m1: user = m1.group(1)
+                    m2 = re.search(passwd_patterns[1], line)
+                    if m2: user = m2.group(1)
 
-    _save_seen_users(seen_users)
+                    if not user or user in SYSTEM_USERS:
+                        continue
+
+                    if _user_exists(user):
+                        locked_users.append(user)
+
+                # faillock / tally2 / sshd lock events
+                for pat in extra_patterns:
+                    m = re.search(pat, line)
+                    if not m:
+                        continue
+
+                    user = m.group(1)
+
+                    if user in SYSTEM_USERS:
+                        continue
+
+                    log_time = _extract_timestamp(line)
+                    if not log_time or log_time < _script_start_time:
+                        continue
+
+                    if _user_exists(user):
+                        locked_users.append(user)
+
+    except:
+        pass
+
     return locked_users
+
 
 
 def get_new_user_creations(window_secs=5):
@@ -1504,6 +1688,118 @@ def get_new_user_creations(window_secs=5):
 
     return list(new_users)
 
+def get_user_deletions(window_secs=5):
+    """
+    Detect users deleted in the last `window_secs` seconds.
+    Matches: userdel[...] or deluser[...] entries from system logs.
+    """
+    delete_re = re.compile(r"(?:userdel|deluser)\[\d+\].*?:\s*(?:delete user|Removing user)\s+'?([a-zA-Z0-9_-]+)'?")
+    deleted_users = set()
+
+    # 1) Try journalctl
+    if shutil.which("journalctl"):
+        since = (datetime.now() - timedelta(seconds=window_secs))\
+                    .strftime("%Y-%m-%d %H:%M:%S")
+        cmd = ["journalctl", "--since", since, "--no-pager", "-o", "short-iso"]
+        try:
+            out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=3)
+            for line in out.splitlines():
+                m = delete_re.search(line)
+                if m:
+                    deleted_users.add(m.group(1))
+            return list(deleted_users)
+        except Exception:
+            pass
+
+    # 2) Fallback to auth.log
+    auth_log = "/var/log/auth.log"
+    if os.path.exists(auth_log):
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=window_secs)
+        try:
+            out = subprocess.check_output(["tail", "-n", "300", auth_log],
+                                          text=True, timeout=2)
+            for line in out.splitlines():
+                parts = line.split()
+                if not parts:
+                    continue
+                ts_str = parts[0]
+                try:
+                    log_ts = datetime.fromisoformat(ts_str)
+                except Exception:
+                    continue
+
+                if log_ts.astimezone(timezone.utc) >= window_start:
+                    m = delete_re.search(line)
+                    if m:
+                        deleted_users.add(m.group(1))
+        except Exception:
+            pass
+
+    return list(deleted_users)
+
+
+def get_user_modifications(window_secs=5):
+    """
+    Detect users modified in the last `window_secs` seconds.
+    Matches any usermod[...] entry.
+    """
+    # modify_re = re.compile(r"usermod\[\d+\].*?:.*user\s+'?([a-zA-Z0-9_-]+)'?")
+    modify_re = re.compile(r"COMMAND=.*usermod.*\s([a-zA-Z0-9_-]+)")
+
+    modified_users = set()
+
+    # 1) Try journalctl
+    if shutil.which("journalctl"):
+        since = (datetime.now() - timedelta(seconds=window_secs))\
+                    .strftime("%Y-%m-%d %H:%M:%S")
+        cmd = ["journalctl", "--since", since, "--no-pager", "-o", "short-iso"]
+        try:
+            out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, timeout=3)
+            # for line in out.splitlines():
+            #     m = modify_re.search(line)
+            #     if m:
+            #         modified_users.add(m.group(1))
+            for line in out.splitlines():
+                # Ignore lines where usermod says "no changes"
+                if "no changes" in line.lower():
+                    continue
+
+                m = modify_re.search(line)
+                if m:
+                    modified_users.add(m.group(1))
+
+            return list(modified_users)
+        except Exception:
+            pass
+
+    # 2) Fallback to auth.log
+    auth_log = "/var/log/auth.log"
+    if os.path.exists(auth_log):
+        window_start = datetime.now(timezone.utc) - timedelta(seconds=window_secs)
+        try:
+            out = subprocess.check_output(["tail", "-n", "300", auth_log],
+                                          text=True, timeout=2)
+            for line in out.splitlines():
+                parts = line.split()
+                if not parts:
+                    continue
+                ts_str = parts[0]
+
+                try:
+                    log_ts = datetime.fromisoformat(ts_str)
+                except:
+                    continue
+
+                if log_ts.astimezone(timezone.utc) >= window_start:
+                    m = modify_re.search(line)
+                    if m:
+                        modified_users.add(m.group(1))
+        except Exception:
+            pass
+
+    return list(modified_users)
+
+
 
 # ─── UEBA_3: Failed Access Attempt Analysis Helpers ────────────────────────
 
@@ -1514,35 +1810,148 @@ expired_cred_window_start    = datetime.now(timezone.utc)
 dict_attack_window_start     = datetime.now(timezone.utc)
 
 
+import re, subprocess, time
+from datetime import datetime, timezone, timedelta
+from typing import Dict
+
+LOG_FILE = "/var/log/auth.log"
+FAILED_LOG_FILE_FD = None
+
+def init_failed_login_reader():
+    """Open auth.log and seek to end so only new lines are processed."""
+    global FAILED_LOG_FILE_FD
+    FAILED_LOG_FILE_FD = open(LOG_FILE, "r")
+    FAILED_LOG_FILE_FD.seek(0, os.SEEK_END)  # jump to end (ignore history)
 
 
-
-def get_failed_logins_by_user(window_secs: int = 5) -> Dict[str, int]:
+def get_failed_logins_by_user() -> Dict[str, int]:
     """
-    Count failed login attempts per username in the last `window_secs` seconds
-    by reading sshd entries from the journal.
+    Return ONLY new failed login attempts since last call.
+    Reads only new lines appended after last read.
     """
-    cmd = [
-        "journalctl", "-u", "ssh.service",
-        "--since", f"-{window_secs}s",
-        "--no-pager", "--output", "short"
-    ]
+    global FAILED_LOG_FILE_FD
+    new_counts = {}
+
+    # Read new lines (non-blocking)
+    while True:
+        line = FAILED_LOG_FILE_FD.readline()
+        if not line:
+            break  # no new lines
+
+        # Match patterns
+        m_user = re.search(
+            r"(?:Failed (?:password|none) for (?:invalid user )?)(\S+)",
+            line
+        )
+        if m_user:
+            user = m_user.group(1)
+            new_counts[user] = new_counts.get(user, 0) + 1
+            continue
+
+        m_pam = re.search(r"authentication failure;.*\buser=([^\s]+)", line)
+        if m_pam:
+            user = m_pam.group(1)
+            new_counts[user] = new_counts.get(user, 0) + 1
+            continue
+
+        if "authentication failure; " in line and "sshd" in line:
+            new_counts["unknown"] = new_counts.get("unknown", 0) + 1
+
+    return new_counts
+
+
+
+# -----------------------------
+# 2) Incremental counter: only NEW failures since last call
+# -----------------------------
+_last_checked_time = None  # tz-aware UTC datetime
+
+def get_failed_logins(
+    log_file: str = "/var/log/auth.log",
+    tail_lines: int = 1000
+) -> int:
+    """
+    Return ONLY the number of *new* failed login attempts since last call.
+    Detects:
+      - "Failed password for (invalid user )?<user>"
+      - "Failed none for <user>"
+      - PAM authentication failures (counts, even if user is missing)
+    Supports syslog and ISO timestamps. Uses a UTC watermark.
+    """
+    global _last_checked_time
+
+    now_utc = datetime.now(timezone.utc)
+    local_tz = datetime.now().astimezone().tzinfo
+
+    # First call: set watermark and return 0
+    if _last_checked_time is None:
+        _last_checked_time = now_utc
+        return 0
+
+    iso_re    = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:\d{2})")
+    syslog_re = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
+
+    ssh_fail_user_re = re.compile(
+        r"(?:Failed (?:password|none) for (?:invalid user )?\S+)"
+    )
+    pam_fail_re = re.compile(r"authentication failure;.*sshd")
+
     try:
-        out = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL)
-    except subprocess.SubprocessError:
-        return {}
+        out = subprocess.check_output(
+            ["tail", "-n", str(tail_lines), log_file],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=2
+        )
+    except Exception:
+        return 0
 
-    # user_re = re.compile(r"Failed password for\s+(\S+)")
-    # only match the actual "Failed password for <user>" lines
-    user_re = re.compile(r"Failed password for\s+(\S+)")
+    new_failures = 0
+    max_seen = _last_checked_time
 
-    counts: Dict[str,int] = {}
     for line in out.splitlines():
-        m = user_re.search(line)
-        if m:
-            user = m.group(1)
-            counts[user] = counts.get(user, 0) + 1
-    return counts
+        # --- timestamp to UTC ---
+        ts_utc = None
+
+        m_iso = iso_re.search(line)
+        if m_iso:
+            try:
+                ts_utc = datetime.fromisoformat(m_iso.group(1)).astimezone(timezone.utc)
+            except Exception:
+                ts_utc = None
+        if ts_utc is None:
+            m_sys = syslog_re.match(line)
+            if m_sys:
+                mon, day, timestr = m_sys.groups()
+                year = now_utc.year
+                try:
+                    dt_local_naive = datetime.strptime(
+                        f"{year} {mon} {int(day):02d} {timestr}",
+                        "%Y %b %d %H:%M:%S"
+                    )
+                    ts_utc = dt_local_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
+
+                    # year rollover guard
+                    if ts_utc - now_utc > timedelta(days=1):
+                        dt_local_naive = dt_local_naive.replace(year=year - 1)
+                        ts_utc = dt_local_naive.replace(tzinfo=local_tz).astimezone(timezone.utc)
+                except Exception:
+                    ts_utc = None
+
+        if ts_utc is None:
+            continue
+
+        # Only count strictly NEW lines between previous watermark and now
+        if _last_checked_time < ts_utc <= now_utc:
+            if ssh_fail_user_re.search(line) or pam_fail_re.search(line):
+                new_failures += 1
+                if ts_utc > max_seen:
+                    max_seen = ts_utc
+
+    _last_checked_time = max_seen
+    return new_failures
+ 
+
 
 def get_failed_logins_by_ip(window_secs: int = 5) -> Dict[str, int]:
     """
@@ -1639,17 +2048,7 @@ _last_passwd_chk = datetime.now(timezone.utc)
 _PW_ISO_RE    = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+\-]\d{2}:\d{2})")
 _PW_SYSLOG_RE = re.compile(r"^([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})")
 
-# Content patterns that indicate a **failed** password change
-# _PW_FAIL_PATTERNS = [
-#     re.compile(r"pam_unix\(passwd:chauthtok\):\s+authentication failure", re.I),
-#     re.compile(r"passwd\[\d+\]:\s+password.*unchanged", re.I),
-#     re.compile(r"passwd:.*Authentication token manipulation error", re.I),
-#     re.compile(r"passwd\[\d+\]:\s+User not known to PAM", re.I),
-#     re.compile(r"BAD PASSWORD", re.I),
-#     re.compile(r"passwd:.*exhausted maximum number of retries", re.I),
-#     re.compile(r"passwd:.*Have exhausted maximum number of retries", re.I),
 
-# ]
 _PW_FAIL_PATTERNS = [
     re.compile(r"pam_unix\(passwd:chauthtok\):\s+authentication failure", re.I),
     re.compile(r"passwd.*password.*unchanged", re.I),
@@ -2054,385 +2453,144 @@ def get_app_latency_metrics(pid):
             "io_wait_time": None
         }
 
+
+def get_kernel_latency():
+    """
+    Kernel latency via CPU pressure stall information (PSI).
+    Returns worst/avg stall times.
+    """
+
+    try:
+        with open("/proc/pressure/cpu", "r") as f:
+            data = f.read()
+
+        # Example:
+        # some avg10=0.00 avg60=0.00 avg300=0.00 total=0
+        # full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+
+        some_line = next((l for l in data.splitlines() if l.startswith("some")), None)
+        full_line = next((l for l in data.splitlines() if l.startswith("full")), None)
+
+        def parse(line):
+            vals = {}
+            for part in line.split():
+                if "=" in part:
+                    k, v = part.split("=")
+                    vals[k] = float(v)
+            return vals
+
+        some = parse(some_line) if some_line else {}
+        full = parse(full_line) if full_line else {}
+
+        # We map PSI to ms-like values for consistency:
+        worst = max(some.get("avg10", 0), some.get("avg60", 0), some.get("avg300", 0))
+        avg = (some.get("avg10", 0) + some.get("avg60", 0) + some.get("avg300", 0)) / 3
+
+        return {
+            "worst_latency_ms": worst,
+            "average_latency_ms": avg,
+            "top_event": "cpu_pressure"
+        }
+
+    except Exception as e:
+        return {
+            "worst_latency_ms": None,
+            "average_latency_ms": None,
+            "top_event": None,
+            "error": str(e)
+        }
+
+def get_scheduling_latency():
+    """
+    Scheduling latency using PSI (CPU + IO + Memory).
+    """
+
+    try:
+        # CPU stall
+        with open("/proc/pressure/cpu", "r") as f:
+            cpu = f.read()
+
+        # IO stall
+        with open("/proc/pressure/io", "r") as f:
+            io = f.read()
+
+        # Memory stall
+        with open("/proc/pressure/memory", "r") as f:
+            mem = f.read()
+
+        def extract_avg10(data):
+            line = data.splitlines()[0]
+            for part in line.split():
+                if part.startswith("avg10="):
+                    return float(part.split("=")[1])
+            return None
+
+        cpu_avg = extract_avg10(cpu)
+        io_avg = extract_avg10(io)
+        mem_avg = extract_avg10(mem)
+
+        # Combine into synthetic scheduling delay
+        combined = (cpu_avg + io_avg + mem_avg) / 3
+
+        return {
+            "avg_delay_ms": combined,
+            "max_delay_ms": None,     # PSI does not expose max
+            "sample_count": None
+        }
+
+    except Exception as e:
+        return {
+            "avg_delay_ms": None,
+            "max_delay_ms": None,
+            "sample_count": None,
+            "error": str(e)
+        }
+
+
+def get_realtime_latency():
+    """
+    Realtime latency using Python-based jitter test.
+    Returns:
+    {
+        "min_latency_us": float,
+        "avg_latency_us": float,
+        "max_latency_us": float
+    }
+    """
+
+    try:
+        import time
+
+        delays = []
+        ITER = 300  # lightweight test
+
+        for _ in range(ITER):
+            t1 = time.perf_counter_ns()
+            time.sleep(0.001)  # 1ms sleep
+            t2 = time.perf_counter_ns()
+
+            actual = t2 - t1
+            ideal = 1_000_000  # 1ms = 1,000,000 ns
+
+            jitter_ns = actual - ideal
+            delays.append(jitter_ns)
+
+        return {
+            "min_latency_us": min(delays) / 1000,
+            "avg_latency_us": (sum(delays) / len(delays)) / 1000,
+            "max_latency_us": max(delays) / 1000
+        }
+
+    except Exception as e:
+        return {
+            "min_latency_us": None,
+            "avg_latency_us": None,
+            "max_latency_us": None,
+            "error": str(e)
+        }
+
+
 #################### UEBA_11::Application Usage Monitoring ###############################
-
-# def get_installed_exec_commands():
-#     """
-#     Extracts executable commands from .desktop files (from Exec= lines).
-#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'meld').
-#     """
-#     desktop_dirs = ['/usr/share/applications', os.path.expanduser('~/.local/share/applications')]
-#     exec_names = set()
-#     exec_pattern = re.compile(r'^Exec=(\S+)')
-
-#     for path in desktop_dirs:
-#         if os.path.exists(path):
-#             for file in os.listdir(path):
-#                 if file.endswith(".desktop"):
-#                     full_path = os.path.join(path, file)
-#                     try:
-#                         with open(full_path, 'r') as f:
-#                             for line in f:
-#                                 match = exec_pattern.match(line)
-#                                 if match:
-#                                     cmd = os.path.basename(match.group(1)).lower()
-#                                     exec_names.add(cmd)
-#                     except Exception:
-#                         continue
-#     return exec_names
-
-# def get_installed_exec_commands():
-#     """
-#     Extract executable commands from .desktop files (Exec= lines).
-#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'meld').
-#     """
-#     desktop_dirs = [
-#         '/usr/share/applications',
-#         os.path.expanduser('~/.local/share/applications'),
-#         '/var/lib/flatpak/exports/share/applications'
-#     ]
-#     exec_names = set()
-#     exec_pattern = re.compile(r'^Exec=(.+)', re.IGNORECASE)
-
-#     for path in desktop_dirs:
-#         if os.path.exists(path):
-#             for file in os.listdir(path):
-#                 if not file.endswith(".desktop"):
-#                     continue
-#                 full_path = os.path.join(path, file)
-#                 try:
-#                     with open(full_path, 'r', encoding="utf-8", errors="ignore") as f:
-#                         for line in f:
-#                             line = line.strip()
-#                             match = exec_pattern.match(line)
-#                             if match:
-#                                 # Split Exec= line into tokens (remove placeholders like %U, %f, etc.)
-#                                 parts = match.group(1).split()
-#                                 if not parts:
-#                                     continue
-#                                 cmd = os.path.basename(parts[0]).lower()
-#                                 # Ignore placeholder-like entries
-#                                 if cmd and not cmd.startswith('%'):
-#                                     exec_names.add(cmd)
-#                                 break  # stop after first Exec= line
-#                 except Exception:
-#                     continue
-
-#     return exec_names
-
-# import shlex
-
-# def get_installed_exec_commands():
-#     """
-#     Extract executable commands from .desktop files (Exec= lines).
-#     Returns a set of lowercase base commands (e.g., 'libreoffice', 'firefox', 'code').
-#     """
-#     desktop_dirs = [
-#         '/usr/share/applications',
-#         os.path.expanduser('~/.local/share/applications'),
-#         '/var/lib/flatpak/exports/share/applications',
-#         os.path.expanduser('~/.local/share/flatpak/exports/share/applications'),
-#         '/var/lib/snapd/desktop/applications',
-#     ]
-#     exec_names = set()
-#     exec_pattern = re.compile(r'^\s*Exec\s*=\s*(.+)$', re.IGNORECASE)
-
-#     def _extract_cmd_from_exec(exec_value: str) -> str | None:
-#         # split respecting quotes
-#         try:
-#             tokens = shlex.split(exec_value, posix=True)
-#         except Exception:
-#             tokens = exec_value.split()
-
-#         if not tokens:
-#             return None
-
-#         # Drop leading env wrapper and VAR= assignments
-#         i = 0
-#         if tokens[i] in ('env', '/usr/bin/env'):
-#             i += 1
-#         while i < len(tokens) and '=' in tokens[i] and not tokens[i].startswith('/'):
-#             i += 1
-#         if i >= len(tokens):
-#             return None
-
-#         # Handle "flatpak run <app-id>" launchers
-#         if tokens[i] == 'flatpak' and i + 1 < len(tokens) and tokens[i+1] == 'run':
-#             # app-id usually next; map "org.mozilla.firefox" -> "firefox"
-#             if i + 2 < len(tokens):
-#                 app_id = tokens[i+2]
-#                 base = app_id.split('.')[-1].lower()
-#                 return base
-
-#         # Normal case: first real executable path/name
-#         exe = tokens[i]
-#         # ignore placeholders like %U etc.
-#         if exe.startswith('%'):
-#             return None
-#         return os.path.basename(exe).lower()
-
-#     for path in desktop_dirs:
-#         if not os.path.exists(path):
-#             continue
-#         for file in os.listdir(path):
-#             if not file.endswith(".desktop"):
-#                 continue
-#             full_path = os.path.join(path, file)
-#             try:
-#                 with open(full_path, 'r', encoding="utf-8", errors="ignore") as f:
-#                     for line in f:
-#                         m = exec_pattern.match(line)
-#                         if not m:
-#                             continue
-#                         cmd = _extract_cmd_from_exec(m.group(1).strip())
-#                         if cmd:
-#                             exec_names.add(cmd)
-#                         break  # use first Exec= only
-#             except Exception:
-#                 continue
-
-#     return exec_names
-
-
-# INSTALLED_EXEC_NAMES = get_installed_exec_commands()
-# print(sorted(INSTALLED_EXEC_NAMES))
-
-# # Background/system services to exclude explicitly
-# BACKGROUND_NAMES = {
-#     "gnome-shell", "gnome-session-binary", "gnome-remote-desktop-daemon",
-#     "xdg-desktop-portal-gtk", "xdg-desktop-portal-gnome", "ibus-extension-gtk3",
-#     "evolution-alarm-notify", "snap", "gnome-settings-daemon",
-#     "dbus-daemon", "gjs", "bash", "python", "update-notifier",
-#     "networkd-dispatcher", "unattended-upgrade", "pipewire",
-#     "pipewire-pulse", "wireplumber", "gdm-wayland-session",
-#     "gnome-keyring-daemon", "xwayland", "snapd-desktop-integration",
-#     "networkd-dispat", "unattended-upgr", "ibus-daemon", "crashhelper","check-new-relea",
-#     "containerd", "containerd-shim-runc-v2", "fc-cache",
-#     "systemd", "udisksd", "gvfsd", "gvfs-udisks2-volume-monitor",
-#     "whoopsie", "polkitd","epmd","dockerd","systemd-journald","systemd-resolved","systemd-timesyncd",
-#     "systemd-udevd","snapd","systemd-logind","systemd-oomd","oosplash","systemd-timedated","inet_gethost",
-#     "beam.smp","postgres","psql","pingsender"
-
-# }
-
-# def track_application_usage(poll_interval=0.25):
-#     """
-#     Track user-facing applications, yielding launch/exit events with status.
-#     Uses (pid, create_time) keys to avoid PID reuse issues.
-#     """
-
-#     # Prime CPU usage counters
-#     primed_procs = {}
-#     for proc in psutil.process_iter(attrs=["pid", "name", "username"]):
-#         try:
-#             proc.cpu_percent(None)
-#             primed_procs[proc.pid] = proc
-#         except (psutil.NoSuchProcess, psutil.AccessDenied):
-#             continue
-#     time.sleep(1)
-
-#     active_processes = {}
-
-#     while True:
-#         current_pids = set()
-#         now = datetime.now()
-
-#         for proc in psutil.process_iter(attrs=[
-#             "pid", "name", "username", "ppid", "cmdline",
-#             "memory_percent", "terminal", "create_time"
-#         ]):
-#             try:
-#                 info = proc.info
-#                 pid = info["pid"]
-#                 ppid = info.get("ppid")
-#                 create_time = info.get("create_time")
-#                 proc_key = (pid, create_time)
-#                 current_pids.add(proc_key)
-
-#                 if info["username"] is None:
-#                     continue
-
-#                 name = info.get("name", "").lower()
-#                 cmdline = info.get("cmdline", [])
-#                 exe_base = os.path.basename(cmdline[0]).lower() if cmdline else ""
-#                 full_cmd = " ".join(cmdline) if cmdline else ""
-
-#                 # LibreOffice variants
-#                 # if exe_base == "soffice.bin":
-#                 #     if "--writer" in cmdline: name = "libreoffice-writer"
-#                 #     elif "--calc" in cmdline: name = "libreoffice-calc"
-#                 #     elif "--impress" in cmdline: name = "libreoffice-impress"
-#                 #     elif "--draw" in cmdline: name = "libreoffice-draw"
-#                 #     else: name = "libreoffice"
-#                 if exe_base == "soffice.bin":
-#                     if "--writer" in cmdline or any(arg.endswith(".odt") for arg in cmdline):
-#                         name = "libreoffice-writer"
-#                     elif "--calc" in cmdline or any(arg.endswith(".ods") for arg in cmdline):
-#                         name = "libreoffice-calc"
-#                     elif "--impress" in cmdline or any(arg.endswith(".odp") for arg in cmdline):
-#                         name = "libreoffice-impress"
-#                     elif "--draw" in cmdline or any(arg.endswith(".odg") for arg in cmdline):
-#                         name = "libreoffice-draw"
-#                     else:
-#                         name = "libreoffice"
-
-
-#                 if exe_base == "gnome-terminal.real":
-#                     name = exe_base = "gnome-terminal"
-
-#                 # --- NEW: wrapper normalization (python/java launching GUI apps)
-#                 if exe_base in ("python3", "python", "java") and len(cmdline) > 1:
-#                     script_name = os.path.basename(cmdline[1]).lower()
-#                     if script_name.endswith(".py"):
-#                         script_name = script_name[:-3]
-#                     name = script_name
-#                     exe_base = script_name
-
-#                 normalized_exe = exe_base.strip().lower()
-#                 normalized_name = name.strip().lower()
-
-#                 # Skip background/system apps (including all systemd-*)
-#                 if (
-#                     normalized_name in BACKGROUND_NAMES or
-#                     normalized_exe in BACKGROUND_NAMES or
-#                     normalized_name.startswith("systemd-")
-#                 ):
-#                     continue
-
-#                 # Skip self-parenting
-#                 try:
-#                     parent = psutil.Process(ppid)
-#                     if parent.name().lower() == normalized_name:
-#                         continue
-#                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-#                     pass
-
-#                 # Skip helper subprocesses
-#                 skip_tokens = [
-#                     "--type=", "-contentproc", "tsserver.js", "typingsInstaller.js",
-#                     "jsonServerMain", "crashpad_handler", "WebExtensions", "Socket Process",
-#                     "RDD Process", "Isolated Web Co", "Privileged Cont", "Web Content"
-#                 ]
-#                 if any(token in full_cmd or token in normalized_name for token in skip_tokens):
-#                     continue
-
-#                 if "--gapplication-service" in full_cmd:
-#                     continue
-
-#                 # --- NEW: follow first non-background child if wrapper dies quickly
-#                 if exe_base in ("python3", "python", "java"):
-#                     try:
-#                         children = proc.children(recursive=True)
-#                         for child in children:
-#                             child_name = child.name().lower()
-#                             if child_name not in BACKGROUND_NAMES and not child_name.startswith("systemd-"):
-#                                 exe_base = child_name
-#                                 name = child_name
-#                                 cmdline = child.cmdline()
-#                                 full_cmd = " ".join(cmdline)
-#                                 break
-#                     except (psutil.NoSuchProcess, psutil.AccessDenied):
-#                         pass
-
-#                 # Check if user-facing app
-#                 is_user_app = (
-#                     normalized_exe in INSTALLED_EXEC_NAMES or
-#                     normalized_name in INSTALLED_EXEC_NAMES or
-#                     "/snap/" in full_cmd or "/snap/bin/" in full_cmd or
-#                     "/usr/bin/" in full_cmd or "/usr/lib/" in full_cmd or
-#                     "/opt/" in full_cmd or ".AppImage" in full_cmd or
-#                     "/var/lib/flatpak/" in full_cmd or
-#                     full_cmd.startswith("flatpak run ")
-#                 )
-#                 if not is_user_app:
-#                     continue
-
-#                 # CPU + memory
-#                 try:
-#                     primed_proc = primed_procs.get(proc.pid)
-#                     if primed_proc:
-#                         cpu = primed_proc.cpu_percent(interval=None)
-#                     else:
-#                         cpu = proc.cpu_percent(interval=None)
-#                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-#                     cpu = 0.0
-#                 mem = info.get("memory_percent", 0.0)
-#                 active_status = "active" if cpu > 0.5 or mem > 0.5 else "inactive"
-
-#                 if proc_key not in active_processes:
-#                     proc.cpu_percent(None)
-#                     # New process → launch event
-#                     record = {
-#                         "username": info["username"],
-#                         "process_name": name,
-#                         "pid": pid,
-#                         "ppid": ppid,
-#                         "cmdline": full_cmd,
-#                         "terminal": info.get("terminal"),
-#                         "status": "active",
-#                         "cpu_percent": cpu,
-#                         "memory_percent": mem,
-#                         "start_time": datetime.fromtimestamp(create_time),
-#                         "last_updated": now,
-#                         "reported": True,
-#                         "_missing_once": False
-#                     }
-#                     latency = get_app_latency_metrics(pid)
-#                     yield {**record, **latency, "event": "launch", "timestamp": now}
-#                     active_processes[proc_key] = record
-#                 else:
-#                     # Update existing
-#                     record = active_processes[proc_key]
-#                     record.update({
-#                         "cpu_percent": cpu,
-#                         "memory_percent": mem,
-#                         "status": active_status,
-#                         "last_updated": now,
-#                         "_missing_once": False
-#                     })
-#                     yield {**record, "event": "update", "timestamp": now} 
-
-#             except (psutil.NoSuchProcess, psutil.AccessDenied, IndexError):
-#                 continue
-
-#         # # Handle exits (buffered for 2 scans)
-#         # for proc_key, record in list(active_processes.items()):
-#         #     if proc_key not in current_pids:
-#         #         if record["_missing_once"]:
-#         #             active_processes.pop(proc_key, None)
-#         #             record["end_time"] = now
-#         #             record["duration_secs"] = (now - record["start_time"]).total_seconds()
-#         #             record["timestamp"] = now
-#         #             record["event"] = "exit"
-#         #             record["status"] = "inactive"
-#         #             latency = get_app_latency_metrics(record["pid"])
-#         #             record.update(latency)
-#         #             yield record
-#         #         else:
-#         #             record["_missing_once"] = True
-#                 # Handle exits (immediate if PID truly gone; else one-buffer)
-#         for proc_key, record in list(active_processes.items()):
-#             if proc_key not in current_pids:
-#                 pid = record["pid"]
-#                 pid_gone = not psutil.pid_exists(pid)
-#                 missing_once = record.get("_missing_once", False)
-
-#                 if pid_gone or missing_once:
-#                     active_processes.pop(proc_key, None)
-#                     now = datetime.now()
-#                     record["end_time"] = now
-#                     record["duration_secs"] = (now - record["start_time"]).total_seconds()
-#                     record["timestamp"] = now
-#                     record["event"] = "exit"
-#                     record["status"] = "inactive"
-#                     latency = get_app_latency_metrics(pid)
-#                     record.update(latency)
-#                     yield record
-#                 else:
-#                     record["_missing_once"] = True
-
-
-#         time.sleep(poll_interval)
 
 
 import shlex, socket, uuid, psutil, os, re, time
@@ -2505,7 +2663,7 @@ def get_installed_exec_commands():
 
 
 INSTALLED_EXEC_NAMES = get_installed_exec_commands()
-print(sorted(INSTALLED_EXEC_NAMES))
+# print(sorted(INSTALLED_EXEC_NAMES))
 
 BACKGROUND_NAMES = {
     "gnome-shell", "gnome-session-binary", "gnome-remote-desktop-daemon",
@@ -2520,7 +2678,7 @@ BACKGROUND_NAMES = {
     "systemd", "udisksd", "gvfsd", "gvfs-udisks2-volume-monitor",
     "whoopsie", "polkitd","epmd","dockerd","systemd-journald","systemd-resolved","systemd-timesyncd",
     "systemd-udevd","snapd","systemd-logind","systemd-oomd","oosplash","systemd-timedated","inet_gethost",
-    "beam.smp","postgres","psql","pingsender"
+    "beam.smp","postgres","psql","pingsender", "master","unattended-upgrade-shutdown", 
 }
 
 def track_application_usage(poll_interval=0.25):
@@ -2939,7 +3097,7 @@ def track_process_executions(poll_interval=5):
                     if not info["is_likely_user_process"]:
                         continue
                     if info["process_name"] in {
-                        "sh", "sleep", "tracker-extract-3", "cpuUsage.sh", "snap"
+                        "sh", "sleep", "tracker-extract-3", "cpuUsage.sh", "snap", "ping"
                     }:
                         continue
 
