@@ -100,7 +100,9 @@ def main():
     }
 
     for name, func in producers.items():
-        t = threading.Thread(target=run_producer, args=(name, func), daemon=True)
+        # t = threading.Thread(target=run_producer, args=(name, func), daemon=True)  # 27 nov
+        t = threading.Thread(target=run_producer, args=(name, func), daemon=False)
+
         threads.append(t)
         t.start()
 
@@ -109,10 +111,15 @@ def main():
     try:
         # while not stop_event.is_set():
         #     time.sleep(1)
-        while not stop_event.is_set():
+        # while not stop_event.is_set():
+        #     time.sleep(1)
+        #     if shutdown_requested.is_set():
+        #         perform_shutdown()
+        while True:
             time.sleep(1)
             if shutdown_requested.is_set():
                 perform_shutdown()
+
     except KeyboardInterrupt:
         handle_exit(None, None)
 

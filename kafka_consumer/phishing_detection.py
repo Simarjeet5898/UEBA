@@ -72,7 +72,7 @@ def _parse_ts(ts: str | None) -> datetime:
 def _ensure_table(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS anomalies_log (
+            CREATE TABLE IF NOT EXISTS anomalies_log_ueba (
                 id SERIAL PRIMARY KEY,
                 event_id VARCHAR(255),
                 user_id VARCHAR(255),
@@ -153,7 +153,7 @@ def _insert_row(sig: AttackInput) -> str:
     )
 
     sql = """
-        INSERT INTO anomalies_log (
+        INSERT INTO anomalies_log_ueba (
             event_id, user_id, timestamp, event_type, event_subtype, severity,
             attacker_info, component, resource, event_reason,
             device_ip, device_mac, log_text, risk_score

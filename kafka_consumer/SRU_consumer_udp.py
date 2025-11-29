@@ -12,9 +12,10 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 # from db_send import store_anomaly_to_postgres
 from dataclasses import asdict
-from helper import store_anomaly_to_database_and_siem
+from helper import store_anomaly_to_database_and_siem,store_siem_ready_packet
 import socket
-from helper import build_command_exe_moni_packet, store_siem_ready_packet,build_anomalous_cpu_gpu_ram_consp_packet
+from helper import build_command_exe_moni_packet,build_anomalous_cpu_gpu_ram_consp_packet
+from helper import build_anomalous_cpu_consumption_packet,build_anomalous_ram_consumption_packet,build_anomalous_gpu_consumption_packet
 # from udp_dispatcher import queues
 import math
 from datetime import datetime
@@ -52,6 +53,7 @@ DB_CONFIG = {
 }
 
 destinations = config["destinations"]
+anom_conf = config.get("anomalous_cpu_gpu_ram_anomaly", {})
 
 
 
@@ -105,111 +107,10 @@ SENSITIVE_COMMANDS = {
 
 # EWMA Settings
 ALPHA = 0.4  # EWMA smoothing factor
-SIGMA_THRESHOLD = 2  # 2-sigma rule for anomaly detection
+SIGMA_THRESHOLD = 2 
 
 ewma_metrics = {}
 ewma_deviation = {}
-
-# Mapping of anomalies to event types and sub-types
-
-# ANOMALY_CATEGORIES = {
-#     "cpu_usage": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "ANOMALOUS_CPU_CONSUMPTION",
-#         "Event Details": "Excessive CPU utilization detected",
-#     },
-#     "memory_usage": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "ANOMALOUS_RAM_CONSUMPTION",
-#         "Event Details": "Unusual memory usage indicating potential attack",
-#     },
-#     "disk_usage": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unusual increase in disk read/write operations",
-#     },
-#     "gpu_usage": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "ANOMALOUS_GPU_CONSUMPTION",
-#         "Event Details": "Unexpected GPU usage",
-#     },
-#     "system_temperature": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "High system temperature beyond normal thresholds",
-#     },
-#     "response_time": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "High Response Time",
-#     },
-#     "network_bytes_sent": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "High outbound network traffic",
-#     },
-#     "network_bytes_recv": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unusual spike in inbound network traffic",
-#     },
-#     "network_packets_sent": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unusual spike in outbound network traffic",
-#     },
-#     "network_packets_recv": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Sudden surge in incoming network packets",
-#     },
-#     "total_files": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Possible File Overloading",
-#     },
-#     "num_gui_processes": {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Possible GUI Overloading",
-#     },
-#     "avg_load" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unusual Spike in System Load"
-#     },
-#     "num_open_windows" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "GUI Overloading"
-#     },
-#     "total_threads" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
-#         "Event Details": "Anomalous thread spawning"
-#      },
-#     "total_processes" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "PROCESS_CREATION_ACTIVITY",
-#         "Event Details": "Anomalous Process spawning"
-#     },
-#     "disk_read_rate" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unauthorized Disk Reads"
-#     },
-#     "disk_write_rate" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "DDOS_ATTACK_DETECTED",
-#         "Event Details": "Unauthorized Disk Writes"
-#     },
-#     "encrypted_files" : {
-#         "Event Type": "BEHAVIORAL_EVENTS",
-#         "Event Sub Type": "LARGE_SCALE_ENCRYPTION",
-#         "Event Details": "Large Scale Encryption Detected"
-#     }
-
-# }
 
 
 ANOMALY_CATEGORIES = {
@@ -330,14 +231,31 @@ def detect_anomalous_resource_usage(metrics):
     With debug prints for behavior tracing.
     """
 
-    WATCHED = {
-        "cpu_usage":    {"min_abs": 75.0, "event_name": "Anomalous CPU Usage"},
-        "memory_usage": {"min_abs": 65.0, "event_name": "Anomalous Memory Usage"},
-        "gpu_usage":    {"min_abs": 15.0, "event_name": "Anomalous GPU Usage"},
-    }
-    PERSISTENCE_REQUIRED = 3   # consecutive abnormal samples to trigger
-    RECOVERY_REQUIRED    = 3   # consecutive normal samples to reset
+    # WATCHED = {
+    #     "cpu_usage":    {"min_abs": 75.0, "event_name": "Anomalous CPU Usage"},
+    #     "memory_usage": {"min_abs": 65.0, "event_name": "Anomalous Memory Usage"},
+    #     "gpu_usage":    {"min_abs": 15.0, "event_name": "Anomalous GPU Usage"},
+    # }
+    # PERSISTENCE_REQUIRED = 3   # consecutive abnormal samples to trigger
+    # RECOVERY_REQUIRED    = 3   # consecutive normal samples to reset
 
+    WATCHED = {
+        "cpu_usage": {
+            "min_abs": anom_conf.get("cpu_threshold", 75),
+            "event_name": "Anomalous CPU Usage"
+        },
+        "memory_usage": {
+            "min_abs": anom_conf.get("memory_threshold", 65),
+            "event_name": "Anomalous Memory Usage"
+        },
+        "gpu_usage": {
+            "min_abs": anom_conf.get("gpu_threshold", 15),
+            "event_name": "Anomalous GPU Usage"
+        }
+    }
+
+    PERSISTENCE_REQUIRED = anom_conf.get("persistence_required", 3)
+    RECOVERY_REQUIRED    = anom_conf.get("recovery_required", 3)
     # persistent state per device
     ru_state = globals().setdefault("_RU_STATE_SIMPLE", {})
 
@@ -364,11 +282,6 @@ def detect_anomalous_resource_usage(metrics):
 
         # abnormal condition
         abnormal = v >= cfg["min_abs"]
-
-        # # 🔎 Debug print
-        # print(f"[DEBUG] {key}: value={v}, threshold={cfg['min_abs']}, "
-        #       f"abnormal={abnormal}, active={mstate['active'][key]}, "
-        #       f"strikes={mstate['strikes'][key]}, recovery={mstate['recovery'][key]}")
 
         if abnormal:
             mstate["strikes"][key] += 1
@@ -410,7 +323,7 @@ conn = psycopg2.connect(**DB_CONFIG)
 cur = conn.cursor()
 
 cur.execute("""
-CREATE TABLE IF NOT EXISTS executed_commands (
+CREATE TABLE IF NOT EXISTS executed_commands_ueba (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP,
     user_id TEXT,
@@ -422,7 +335,7 @@ CREATE TABLE IF NOT EXISTS executed_commands (
 """)
 
 cur.execute("""
-CREATE TABLE IF NOT EXISTS resource_usage (
+CREATE TABLE IF NOT EXISTS resource_usage_ueba (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP NOT NULL,
     username VARCHAR(100),
@@ -445,7 +358,7 @@ CREATE TABLE IF NOT EXISTS resource_usage (
 """)
 
 cur.execute("""
-CREATE TABLE IF NOT EXISTS network_status (
+CREATE TABLE IF NOT EXISTS network_status_ueba (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP NOT NULL,
     username VARCHAR(100),
@@ -483,7 +396,7 @@ def get_command_baseline(user_id, min_samples=20):
 
         cur.execute("""
             SELECT command
-            FROM executed_commands
+            FROM executed_commands_ueba
             WHERE user_id = %s
             ORDER BY timestamp DESC
             LIMIT 100;
@@ -584,7 +497,8 @@ def detect_command_deviation(user_id, command, baseline):
     return None
 
 
-#cpu stress command for abnormal cpu
+#cpu stress command for abnormal cpu: stress-ng --cpu 4 --cpu-load 90 --timeout 60s
+
 #stress-ng --temp-path /tmp --vm 2 --vm-bytes 80% --timeout 60s for abnormal memory
 
 
@@ -622,7 +536,7 @@ def main(stop_event=None):
 
                 cur.execute(
                     """
-                    INSERT INTO executed_commands
+                    INSERT INTO executed_commands_ueba
                     (timestamp, user_id, source, command, mac_address, ip_address)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     """,
@@ -656,7 +570,7 @@ def main(stop_event=None):
                     store_siem_ready_packet(asdict(siem_packet))
 
                 cur.execute("""
-                    SELECT COUNT(*) FROM executed_commands
+                    SELECT COUNT(*) FROM executed_commands_ueba
                     WHERE command = %s AND timestamp > NOW() - INTERVAL '1 minutes'
                 """, (full_cmd,))
                 repetition_count = cur.fetchone()[0]
@@ -734,7 +648,7 @@ def main(stop_event=None):
         # Insert meaningful resource usage record
         cur.execute(
             """
-            INSERT INTO resource_usage (
+            INSERT INTO resource_usage_ueba (
                 timestamp, username, mac_address, ip_addresses,
                 cpu_usage, gpu_usage, ram_usage, memory_usage,
                 disk_read_rate, disk_write_rate,
@@ -765,17 +679,27 @@ def main(stop_event=None):
             )
         )
 
-        # Store anomalies (if any)
         # for anomaly in anomalies:
+        #     metric = anomaly.get("metric")
+        #     info = ANOMALY_CATEGORIES.get(metric, {
+        #         "Event Type": "Unknown",
+        #         "Event Sub Type": "Unknown",
+        #         "Event Details": "Unknown anomaly detected"
+        #     })
+
         #     anomaly_msg = {
         #         "msg_id": "UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP_MSG",
-        #         "event_type": "SYSTEM_EVENTS",
-        #         "event_name": "DDOS_ATTACK_DETECTED",
-        #         "event_reason": anomaly.get("event_reason"),
+        #         # "msg_id": "uebaEventQueue",
+        #         "event_type": info["Event Type"],
+        #         "event_name": info["Event Sub Type"],
+        #         "event_reason": info["Event Details"],
         #         "timestamp": metrics.get("timestamp"),
         #         "log_text": json.dumps(metrics),
         #         "severity": "ALERT",
+        #         "metric": metric,
+        #         "current_value": anomaly.get("current_value")
         #     }
+
         #     store_anomaly_to_database_and_siem(anomaly_msg)
         #     siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
         #     store_siem_ready_packet(asdict(siem_packet))
@@ -793,16 +717,52 @@ def main(stop_event=None):
                 "event_name": info["Event Sub Type"],
                 "event_reason": info["Event Details"],
                 "timestamp": metrics.get("timestamp"),
-                "log_text": json.dumps(metrics),
+                # "log_text": json.dumps(metrics),
+                "log_text": json.dumps(metrics, default=str),
                 "severity": "ALERT",
                 "metric": metric,
                 "current_value": anomaly.get("current_value")
             }
+            anomaly_msg["log_text"] = json.dumps(anomaly_msg, default=str)
+            anomaly_msg["user_id"] = metrics.get("username", "unknown")
+            anomaly_msg["username"] = metrics.get("username", "unknown")
 
+            # CPU anomaly
+            if metric == "cpu_usage":
+                anomaly_msg["cpu_anomalous_usage"] = anomaly.get("current_value")
+                ts = metrics.get("timestamp")
+                anomaly_msg["anomalous_cpu_usage_time"] = datetime.fromisoformat(ts.replace("Z","").replace("z",""))
+
+            # RAM anomaly
+            elif metric == "memory_usage":
+                anomaly_msg["ram_anomalous_usage"] = anomaly.get("current_value")
+                ts = metrics.get("timestamp")
+                anomaly_msg["anomalous_ram_usage_time"] = datetime.fromisoformat(ts.replace("Z","").replace("z",""))
+
+            # GPU anomaly
+            elif metric == "gpu_usage":
+                anomaly_msg["gpu_anomalous_usage"] = anomaly.get("current_value")
+                ts = metrics.get("timestamp")
+                anomaly_msg["anomalous_gpu_usage_time"] = datetime.fromisoformat(ts.replace("Z","").replace("z",""))
+
+
+            # Store anomaly into DB
             store_anomaly_to_database_and_siem(anomaly_msg)
-            siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
-            store_siem_ready_packet(asdict(siem_packet))
 
+            # === NEW: choose correct builder ===
+            if metric == "memory_usage":
+                siem_packet = build_anomalous_ram_consumption_packet(anomaly_msg)
+
+            elif metric == "gpu_usage":
+                siem_packet = build_anomalous_gpu_consumption_packet(anomaly_msg)
+
+            elif metric == "cpu_usage":
+                siem_packet = build_anomalous_cpu_consumption_packet(anomaly_msg)
+
+            else:
+                siem_packet = build_anomalous_cpu_gpu_ram_consp_packet(anomaly_msg)
+
+            store_siem_ready_packet(asdict(siem_packet))
 
 
         # ---------- NETWORK STATUS ----------
@@ -828,7 +788,7 @@ def main(stop_event=None):
 
                 cur.execute("""
                     SELECT id, is_up, ip_address, connection_status
-                    FROM network_status
+                    FROM network_status_ueba
                     WHERE mac_address = %s AND interface_name = %s AND snapshot_date = CURRENT_DATE
                     ORDER BY id DESC LIMIT 1
                 """, (system_mac, iface))
@@ -839,7 +799,7 @@ def main(stop_event=None):
                     existing_id, prev_up, prev_ip, prev_conn_state = existing
                     if (prev_up != is_up) or (prev_ip != ip) or (prev_conn_state != conn_state):
                         cur.execute("""
-                            UPDATE network_status
+                            UPDATE network_status_ueba
                             SET timestamp = %s,
                                 is_up = %s,
                                 speed_mbps = %s,
@@ -863,7 +823,7 @@ def main(stop_event=None):
                         LOG.info(f"[NetworkStatus] Updated interface {iface} ({system_mac})")
                 else:
                     cur.execute("""
-                        INSERT INTO network_status (
+                        INSERT INTO network_status_ueba (
                         timestamp, username, interface_name, is_up, speed_mbps,
                         mtu, duplex, bytes_sent, bytes_recv, ip_address,
                         mac_address, gateway_ip, ping_ok, latency_ms, connection_status, snapshot_date

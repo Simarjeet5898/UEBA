@@ -271,7 +271,7 @@ def predict_anomalous_application_usage(record: Dict[str, Any]) -> Dict[str, Any
 def ensure_table(conn):
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS application_usage (
+        CREATE TABLE IF NOT EXISTS application_usage_ueba (
             id SERIAL PRIMARY KEY,
             username TEXT,
             process_name TEXT,
@@ -297,7 +297,7 @@ def ensure_table(conn):
 def create_latency_monitoring_table(conn):
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS latency_monitoring (
+        CREATE TABLE IF NOT EXISTS latency_monitoring_ueba (
             id SERIAL PRIMARY KEY,
             username TEXT,
             cpu_percent REAL,
@@ -324,7 +324,7 @@ def create_latency_monitoring_table(conn):
 def insert_usage_record(conn, record):
     cur = conn.cursor()
     insert_sql = """
-        INSERT INTO application_usage (
+        INSERT INTO application_usage_ueba (
             username, process_name, pid, ppid, cmdline, terminal,
             status, cpu_percent, memory_percent, start_time, end_time,
             duration_secs, timestamp
@@ -408,7 +408,7 @@ def detect_anomalous_application_usage(record, state_cache=None):
 def insert_latency_record(conn, record):
     cur = conn.cursor()
     insert_sql = """
-        INSERT INTO latency_monitoring (
+        INSERT INTO latency_monitoring_ueba (
             username, 
             cpu_percent, 
             memory_percent, 
@@ -541,6 +541,7 @@ def main(stop_event=None):
 
                     anomaly = {
                         "msg_id": "UEBA_SIEM_ANOMALOUS_APPLICATION_USAGE_MSG",
+                        # "msg_id": "uebaEventQueue",
                         "event_type": "USER_ACTIVITY_EVENTS",
                         "event_name": "ANOMALOUS_APPLICATION_USAGE",
                         "event_reason": event_reason,

@@ -32,9 +32,9 @@ def init_db():
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
-        # ---- Table 1: client_status ----
+        # ---- Table 1: client_status_ueba ----
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS client_status (
+            CREATE TABLE IF NOT EXISTS client_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT UNIQUE,
                 last_seen TIMESTAMP,
@@ -42,9 +42,9 @@ def init_db():
             );
         """)
 
-        # ---- Table 2: system_status ----
+        # ---- Table 2: system_status_ueba ----
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS system_status (
+            CREATE TABLE IF NOT EXISTS system_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT,
                 event TEXT,
@@ -61,7 +61,7 @@ def init_db():
         conn.commit()
         cur.close()
         conn.close()
-        # print("[DB INIT] Tables client_status & system_status ensured.")
+        # print("[DB INIT] Tables client_status_ueba & system_status_ueba ensured.")
 
     except Exception as e:
         print(f"[DB INIT ERROR] {e}")
@@ -76,7 +76,7 @@ def store_heartbeat(event):
 
         # 1. Create table if not exists
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS client_status (
+            CREATE TABLE IF NOT EXISTS client_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT UNIQUE,
                 last_seen TIMESTAMP,
@@ -91,7 +91,7 @@ def store_heartbeat(event):
 
         # 2. Upsert client status
         cur.execute("""
-            INSERT INTO client_status (client_id, last_seen, status)
+            INSERT INTO client_status_ueba (client_id, last_seen, status)
             VALUES (%s, %s, %s)
             ON CONFLICT (client_id) DO UPDATE
             SET last_seen = EXCLUDED.last_seen,
@@ -100,14 +100,14 @@ def store_heartbeat(event):
 
         # 3. Mark old clients inactive (> 2 min, only if still active)
         cur.execute("""
-            UPDATE client_status
+            UPDATE client_status_ueba
             SET status = 'inactive'
             WHERE status='active'
               AND last_seen < (NOW() - INTERVAL '10 seconds');
         """)
 
         # 4. Count active clients
-        cur.execute("SELECT COUNT(*) FROM client_status WHERE status='active';")
+        cur.execute("SELECT COUNT(*) FROM client_status_ueba WHERE status='active';")
         active_count = cur.fetchone()[0]
 
         conn.commit()
@@ -129,7 +129,7 @@ def store_system_status(event):
 
         # === Ensure table exists ===
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS system_status (
+            CREATE TABLE IF NOT EXISTS system_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT,
                 event TEXT,                 -- clean event/service/config/log name
@@ -216,14 +216,14 @@ def store_system_status(event):
 
         # === UPSERT ===
         cur.execute("""
-            INSERT INTO system_status (client_id, event, event_type, status, details, timestamp, boot_time, close_time)
+            INSERT INTO system_status_ueba (client_id, event, event_type, status, details, timestamp, boot_time, close_time)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (client_id, event, event_type, details)
             DO UPDATE SET
                 timestamp = EXCLUDED.timestamp,
-                status = COALESCE(EXCLUDED.status, system_status.status),
-                boot_time = COALESCE(EXCLUDED.boot_time, system_status.boot_time),
-                close_time = COALESCE(EXCLUDED.close_time, system_status.close_time);
+                status = COALESCE(EXCLUDED.status, system_status_ueba.status),
+                boot_time = COALESCE(EXCLUDED.boot_time, system_status_ueba.boot_time),
+                close_time = COALESCE(EXCLUDED.close_time, system_status_ueba.close_time);
 
         """, (client_id, event_name, event_type, status, details, ts, boot_time, close_time))
 
@@ -238,7 +238,6 @@ def store_system_status(event):
 
 
 def main(stop_event=None):
-    # print("\033[1;32m  !!!!!!!!!!!Heartbeat Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
     print("\033[1;32m  !!!!!!!!!!!Heartbeat & System Status Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
 
     LOG.info("Heartbeat consumer started (UDP)")

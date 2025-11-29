@@ -5,7 +5,7 @@ Connected Entities Consumer Script
 This script serves as the consumer in a Kafka-based pipeline for monitoring 
 connected hardware entities on a Linux system. It listens to the 'device-events' 
 Kafka topic, parses JSON-formatted device metadata, and stores the data in a 
-PostgreSQL database (`connected_entities` table) for centralized monitoring 
+PostgreSQL database (`connected_entities_ueba` table) for centralized monitoring 
 and further analysis.
 
 Key Features:
@@ -57,36 +57,10 @@ DB_CONFIG = {
     'dbname': config["local_db"]["dbname"]
 }
 
-# ─── Connect to DB and ensure table ────────────────────────────
 def ensure_table(conn):
     cur = conn.cursor()
-    # cur.execute("""
-    #     CREATE TABLE IF NOT EXISTS connected_entities (
-    #         id              SERIAL PRIMARY KEY,
-    #         username        TEXT,
-    #         timestamp       TIMESTAMP,
-    #         hostname        TEXT,
-    #         mac_address     TEXT,
-    #         vendor_id       TEXT,
-    #         product_id      TEXT,
-    #         vendor_name     TEXT,
-    #         product_name    TEXT,
-    #         serial_number   TEXT,
-    #         busnum          TEXT,
-    #         devnum          TEXT,
-    #         device_type     TEXT,
-    #         device_node     TEXT,
-    #         sys_name        TEXT,
-    #         driver          TEXT,
-    #         usb_version     TEXT,
-    #         speed           TEXT,
-    #         connection_status TEXT,
-    #         session_start_time TIMESTAMP,
-    #         session_duration_sec INTEGER
-    #     );
-    # """)
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS connected_entities (
+    CREATE TABLE IF NOT EXISTS connected_entities_ueba (
         id SERIAL PRIMARY KEY,
 
         username        TEXT,
@@ -139,22 +113,8 @@ def insert_device_event(conn, data):
     cur = conn.cursor()
 
     if data["connection_status"] == "connected":
-        # Insert a new row for connection
-        # insert_sql = """
-        #     INSERT INTO connected_entities (
-        #         username, timestamp, hostname, mac_address,
-        #         vendor_id, product_id, vendor_name, product_name, serial_number,
-        #         busnum, devnum, device_type, device_node, sys_name, driver,
-        #         usb_version, speed, connection_status, session_start_time, session_duration_sec
-        #     ) VALUES (
-        #         %(username)s, %(timestamp)s, %(hostname)s, %(mac_address)s,
-        #         %(vendor_id)s, %(product_id)s, %(vendor_name)s, %(product_name)s, %(serial_number)s,
-        #         %(busnum)s, %(devnum)s, %(device_type)s, %(device_node)s, %(sys_name)s, %(driver)s,
-        #         %(usb_version)s, %(speed)s, %(connection_status)s, %(session_start_time)s, %(session_duration_sec)s
-        #     );
-        # """
         insert_sql = """
-            INSERT INTO connected_entities (
+            INSERT INTO connected_entities_ueba (
                 username, timestamp, hostname, mac_address,
                 vendor_id, product_id, vendor_name, product_name, serial_number,
                 busnum, devnum, device_type, device_node, sys_name, driver,
@@ -172,23 +132,12 @@ def insert_device_event(conn, data):
         cur.execute(insert_sql, data)
 
     elif data["connection_status"] == "disconnected":
-        # Update existing row instead of inserting
-        # update_sql = """
-        #     UPDATE connected_entities
-        #     SET connection_status = %(connection_status)s,
-        #         session_duration_sec = %(session_duration_sec)s
-        #     WHERE vendor_id = %(vendor_id)s
-        #       AND product_id = %(product_id)s
-        #       AND hostname = %(hostname)s
-        #       AND mac_address = %(mac_address)s
-        #       AND session_start_time = %(session_start_time)s;
-        # """
         update_sql = """
-            UPDATE connected_entities ce
+            UPDATE connected_entities_ueba ce
             SET connection_status = 'disconnected',
                 session_duration_sec = %(session_duration_sec)s
             WHERE ce.id = (
-                SELECT id FROM connected_entities
+                SELECT id FROM connected_entities_ueba
                 WHERE username = %(username)s
                 AND hostname = %(hostname)s
                 AND mac_address = %(mac_address)s
@@ -210,11 +159,9 @@ def insert_device_event(conn, data):
     conn.commit()
     cur.close()
 
-
-        
-# def main():
+   
 def main(stop_event=None):
-    # Connect to Postgres and ensure table exists
+
     conn = psycopg2.connect(**DB_CONFIG)
     ensure_table(conn)
     print("\033[1;92m!!!!!!!!! Connected Entities Consumer running (UDP) !!!!!!\033[0m")

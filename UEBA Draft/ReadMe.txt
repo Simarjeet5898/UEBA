@@ -36,7 +36,7 @@ Logs will be generated in the runtime directory.
 5. Notes
 
 -   On first run, the server will auto-create the PostgreSQL schema
-    (anomalies_log and supporting tables).
+    (anomalies_log_ueba and supporting tables).
 -   Ensure PostgreSQL service is running before starting the server.
 -   SIEM/SOAR integrations depend on correct endpoint configuration in
     config.json.

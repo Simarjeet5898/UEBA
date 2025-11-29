@@ -4,7 +4,7 @@ from datetime import timedelta
 from SIEM_connector import create_packet
 import os
 # import sys
-from helper import store_anomaly_to_database_and_siem
+from helper import store_anomaly_to_database_and_siem,store_siem_ready_packet
 from collections import Counter
 import ipaddress
 from collections import defaultdict
@@ -12,6 +12,9 @@ import psycopg2
 import time
 from collections import deque
 import socket 
+from dataclasses import asdict
+from helper import build_user_account_handling_packet,build_successful_login_after_login_failure_packet,build_login_failure_monitoring_packet
+
 import logging
 LOG = logging.getLogger("Authentication Monitoring Consumer")
 
@@ -31,9 +34,6 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sock.bind((UDP_IP, UDP_PORT))
 
-
-# FAILED_LOGIN_TIME_WINDOW = 60  # seconds
-# FAILED_LOGIN_THRESHOLD = 3     # how many failures trigger anomaly
 
 FAILED_LOGIN_TIME_WINDOW = config["FAILED_LOGIN_TIME_WINDOW"]  # seconds
 FAILED_LOGIN_THRESHOLD = config["FAILED_LOGIN_THRESHOLD"]     # how many failures trigger anomaly
@@ -63,7 +63,7 @@ def init_db():
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS authentication_log (
+            CREATE TABLE IF NOT EXISTS authentication_log_ueba (
                 id SERIAL PRIMARY KEY,
                 timestamp TEXT,
                 event_type TEXT,
@@ -89,7 +89,7 @@ def insert_authentication_event(event):
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS authentication_log (
+            CREATE TABLE IF NOT EXISTS authentication_log_ueba (
                 id SERIAL PRIMARY KEY,
                 timestamp TEXT,
                 event_type TEXT,
@@ -104,7 +104,7 @@ def insert_authentication_event(event):
         """)
         cur.execute(
             """
-            INSERT INTO authentication_log
+            INSERT INTO authentication_log_ueba
             (timestamp, event_type, username, source_ip, source_hostname, method, reason, creator, extra_data)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
@@ -224,12 +224,11 @@ ANOMALY_CATEGORIES = {
 }
 
 
-#newly function added to remove duplicate reverse shell detection
 REVERSE_SHELL_CACHE: dict[tuple, float] = {}
-REVERSE_SHELL_TTL = 300          # seconds to suppress duplicates
+REVERSE_SHELL_TTL = 300          
 
 
-#helper (place anywhere above detect_login_anomalies)
+
 def is_new_reverse_shell(evt: dict) -> bool:
     """
     True  → first sighting (or last sighting was ≥ TTL ago)
@@ -331,10 +330,6 @@ def detect_login_anomalies(metrics):
                 "Value": unauthorized
             })
 
-    # ── USB device anomalies ──────────────────────────────
-    # anomalies.extend(detect_usb_anomalies(metrics))
-
-    # ── Excessive cron jobs ───────────────────────────────
     cron_count = metrics.get("num_cron_jobs")
     if isinstance(cron_count, int) and cron_count > THRESHOLDS.get("max_cron_jobs", 10):
         info = ANOMALY_CATEGORIES["excessive_cron_jobs"]
@@ -495,7 +490,7 @@ def detect_login_anomalies(metrics):
 
 
 def normalize_event_fields(metrics: dict, username: str, event_type: str, reason: str, method="UNKNOWN", creator="System", extra_data=None):
-    """Clean and standardize event fields for authentication_log."""
+    """Clean and standardize event fields for authentication_log_ueba."""
     remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
     if isinstance(remote_ip, list):
         source_ip = remote_ip[0] if remote_ip else "Unknown"
@@ -536,10 +531,6 @@ def main(stop_event=None):
             data, addr = sock.recvfrom(65535)
             evt = json.loads(data.decode("utf-8"))
             LOG.info("[SAC received]: %s", list(evt.keys()))
-
-            # evt = queues["auth"].get()
-            # print(f"[DEBUG] Authentication Consumer received raw event: {evt.get('topic')} | Keys: {list(evt.keys())}")
-
 
             # Only process system-metrics events
             if evt.get("topic") != "system-metrics":
@@ -584,6 +575,16 @@ def main(stop_event=None):
                         metrics=metrics,
                         reason=f"User account '{u}' created"
                     )
+                    siem_packet = build_user_account_handling_packet({
+                        "timestamp": metrics.get("timestamp"),
+                        "event_type": "USER_ACTIVITY_EVENTS",
+                        "event_name": "USER_CREATED",
+                        "event_reason": f"User account '{u}' created",
+                        "account_action": "USER_CREATED",
+                        "log_text": f"User '{u}' created"
+                    })
+                    store_siem_ready_packet(asdict(siem_packet))
+
 
             if metrics.get("modified_users"):
                 for u in metrics["modified_users"]:
@@ -620,6 +621,17 @@ def main(stop_event=None):
                         reason=f"User account '{u}' modified"
                     )
 
+                    siem_packet = build_user_account_handling_packet({
+                        "timestamp": metrics.get("timestamp"),
+                        "event_type": "USER_ACTIVITY_EVENTS",
+                        "event_name": "USER_MODIFIED",
+                        "event_reason": f"User account '{u}' modified",
+                        "account_action": "USER_MODIFIED",
+                        "log_text": f"User '{u}' modified"
+                    })
+                    store_siem_ready_packet(asdict(siem_packet))
+
+
             if metrics.get("deleted_users"):
                 for u in metrics["deleted_users"]:
                     remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
@@ -641,7 +653,7 @@ def main(stop_event=None):
                         "event_type": "AUTHENTICATION_EVENTS",
                         "username": u,
                         "source_ip": source_ip,
-                        "source_hostname": hostname,   # ✅ now always a string
+                        "source_hostname": hostname,  
                         "method": "userdel",
                         "reason": f"User account '{u}' deleted",
                         "creator": metrics.get("creator", "System"),
@@ -654,6 +666,16 @@ def main(stop_event=None):
                         metrics=metrics,
                         reason=f"User account '{u}' deleted"
                     )
+                    siem_packet = build_user_account_handling_packet({
+                        "timestamp": metrics.get("timestamp"),
+                        "event_type": "USER_ACTIVITY_EVENTS",
+                        "event_name": "USER_DELETED",
+                        "event_reason": f"User account '{u}' deleted",
+                        "account_action": "USER_DELETED",
+                        "log_text": f"User '{u}' deleted"
+                    })
+                    store_siem_ready_packet(asdict(siem_packet))
+
 
             # ------- Successful login events (SSH/others) ---------
             if metrics.get("successful_logins"):
@@ -678,6 +700,16 @@ def main(stop_event=None):
                             "extra_data": {}
                         }
                         store_anomaly_to_database_and_siem(recovery_event)
+
+                        siem_packet = build_successful_login_after_login_failure_packet({
+                            "timestamp": ts,
+                            "event_type": "AUTHENTICATION_EVENTS",
+                            "event_name": "SUCCESSFUL_LOGIN_AFTER_FAILED_LOGIN",
+                            "event_reason": f"Successful login after {FAILED_LOGIN_STATE[username]} failed attempts",
+                            "failure_count": FAILED_LOGIN_STATE[username],
+                            "log_text": f"Successful login after {FAILED_LOGIN_STATE[username]} failures"
+                        })
+                        store_siem_ready_packet(asdict(siem_packet))
 
                     # --- 2. Insert normal successful login event ---
                     auth_event = {
@@ -780,6 +812,22 @@ def main(stop_event=None):
                     }
                     store_anomaly_to_database_and_siem(anomaly)
 
+                    # ---- SIEM Login Failure Monitoring Packet (UEBA_052) ----
+                    siem_packet = build_login_failure_monitoring_packet({
+                        "timestamp": ts,
+                        "event_type": "AUTHENTICATION_EVENTS",
+                        "event_name": "LOGIN_FAILURE_MONITORING",
+                        "event_reason": (
+                            f"{total_for_user} continuous failed login attempts detected"
+                        ),
+                        "failure_count": total_for_user,
+                        "log_text": (
+                            f"Login Failure Monitoring Triggered: {total_for_user} continuous failures"
+                        )
+                    })
+                    store_siem_ready_packet(asdict(siem_packet))
+
+
 
             # ------- Failed Password Change ---------
             failed_pw_changes = metrics.get("failed_password_changes", 0)
@@ -823,23 +871,6 @@ def main(stop_event=None):
                     )
 
                     insert_authentication_event(final_evt)
-
-                # Optional: also push a SIEM summary event for the whole batch
-                # store_anomaly_to_database_and_siem({
-                #     "timestamp": metrics.get("timestamp"),
-                #     "event_type": "AUTHENTICATION_EVENTS",
-                #     "event_name": "ACCOUNT_LOCKOUT",
-                #     "username": ",".join(locked_users),
-                #     "source_ip": final_evt["source_ip"],
-                #     "source_hostname": final_evt["source_hostname"],
-                #     "method": "passwd command",
-                #     "event_reason": f"{lock_count} account(s) locked in this interval",
-                #     "creator": metrics.get("creator", "System"),
-                #     "extra_data": {
-                #         "locked_users": locked_users,
-                #         "account_lockouts": lock_count
-                #     }
-                # })
 
         except Exception as e:
             LOG.error(f"[SAC Consumer Error] {e}")

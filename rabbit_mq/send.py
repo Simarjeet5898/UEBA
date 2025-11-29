@@ -1,43 +1,3 @@
-### UEBA → SIEM queues (UEBA sends anomalies to SIEM):
-
-    # UEBA_SIEM_ANOMALOUS_APPLICATION_USAGE
-
-    # UEBA_SIEM_ANOMALOUS_CPU_GPU_RAM_CONSP
-
-    # UEBA_SIEM_ANOMALOUS_FILE_ACCESS
-
-    # UEBA_SIEM_ANOMALOUS_USER_SESSION
-
-    # UEBA_SIEM_BEHAVIOURAL_CHANGE_DETECTION
-
-    # UEBA_SIEM_BRUTE_FORCE_ATTACK_DETECTION
-
-    # UEBA_SIEM_COMMAND_EXE_MONI
-
-    # UEBA_SIEM_DATA_EXFILTRATION_ATTEMPTS_DETECTION
-
-    # UEBA_SIEM_DATA_EXFILTRATION_DETECTION
-
-    # UEBA_SIEM_DOS_DDOS_DETECTION
-
-    # UEBA_SIEM_FILE_SYS_MONI
-
-    # UEBA_SIEM_SSH_BRUTE_FORCE_DETECTION
-
-    # UEBA_SIEM_UNUSED_ACC_ACTIVITY
-
-    # UEBA_SIEM_PRIVILEGED_USER_MONI
-
-    # UEBA_SIEM_PRIVILEGE_ESCALATION_MONI
-
-### UEBA → SOAR queues (UEBA sends acknowledgements/actions to SOAR):
-
-    # UEBA_SOAR_ACTION_ACK
-
-# SOAR → UEBA queues (SOAR sends instructions to UEBA):
-
-    # SOAR_UEBA_ACTION_FOR_ANOMALY
-
 import pika
 import json
 import logging
@@ -63,7 +23,9 @@ def send_to_rabbitmq(packet, msg_id: int, target="siem") -> bool:
         print(f"[RabbitMQ] Using config: host={rabbit_cfg.get('host')}, port={rabbit_cfg.get('port')}, vhost={rabbit_cfg.get('virtual_host', '/')}")
 
         queue_map = config.get("queue_name", {})
-        target_queue = queue_map.get(str(msg_id))
+        # target_queue = queue_map.get(str(msg_id))
+        target_queue = queue_map.get("all")
+
         print(f"[RabbitMQ] Queue map: {queue_map}, target_queue={target_queue}")
 
         if not target_queue:

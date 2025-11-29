@@ -20,14 +20,14 @@ def get_db_connection():
     return psycopg2.connect(**db_config)
 
 def ensure_table_exists():
-    """Ensure anomalies_log table exists (schema aligned with writers)."""
+    """Ensure anomalies_log_ueba table exists (schema aligned with writers)."""
     conn = None
     cur = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS anomalies_log (
+            CREATE TABLE IF NOT EXISTS anomalies_log_ueba (
                 id SERIAL PRIMARY KEY,
                 event_id VARCHAR(255),
                 user_id VARCHAR(255),

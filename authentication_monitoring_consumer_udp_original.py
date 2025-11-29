@@ -58,7 +58,7 @@ def insert_authentication_event(event):
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS authentication_log (
+            CREATE TABLE IF NOT EXISTS authentication_log_ueba (
                 id SERIAL PRIMARY KEY,
                 timestamp TEXT,
                 event_type TEXT,
@@ -73,7 +73,7 @@ def insert_authentication_event(event):
         """)
         cur.execute(
             """
-            INSERT INTO authentication_log
+            INSERT INTO authentication_log_ueba
             (timestamp, event_type, username, source_ip, source_hostname, method, reason, creator, extra_data)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
@@ -770,7 +770,7 @@ def detect_login_anomalies(metrics):
 
 
 def normalize_event_fields(metrics: dict, username: str, event_type: str, reason: str, method="UNKNOWN", creator="System", extra_data=None):
-    """Clean and standardize event fields for authentication_log."""
+    """Clean and standardize event fields for authentication_log_ueba."""
     remote_ip = metrics.get("remote_ip") or metrics.get("ip_addresses", ["Unknown"])
     if isinstance(remote_ip, list):
         source_ip = remote_ip[0] if remote_ip else "Unknown"
@@ -957,29 +957,6 @@ def main(stop_event=None):
                     )
                     insert_authentication_event(auth_event)
 
-            # ------- Anomaly Detection ---------
-            # anomalies = detect_login_anomalies(metrics)
-
-            # if anomalies:
-            #     alert_data = {
-            #         "timestamp": metrics.get("timestamp", "N/A"),
-            #         "username": metrics.get("username", "Unknown"),
-            #         "mac_address": metrics.get("mac_address", "Unknown"),
-            #         "ip_addresses": metrics.get("ip_addresses", "Unknown"),
-            #         "anomalies": anomalies,
-            #         "metrics": metrics
-            #     }
-            #     alert_json = json.dumps(alert_data)
-
-            #     if isinstance(alert_data.get("logText"), dict):
-            #         alert_data["logText"] = json.dumps(alert_data["logText"])
-
-            #     feature_vectors = create_packet(alert_json)
-
-            #     print("Attempting to store in POSTGRES...")
-            #     LOG.info("Anomalies detected: %s", [a.get("Event Sub Type") for a in anomalies])
-            #     LOG.debug("Anomalies detail: %s", anomalies)
-            #     store_anomaly_to_database_and_siem(alert_json)
             anomalies = detect_login_anomalies(metrics)
 
             if anomalies:

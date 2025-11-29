@@ -329,8 +329,8 @@ def main():
 
     while True:
         try:
-            if os.path.exists("/run/systemd/shutdown/scheduled"):
-                handle_shutdown_signal()
+            # if os.path.exists("/run/systemd/shutdown/scheduled"):
+            #     handle_shutdown_signal()
                 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_users = get_current_users()
@@ -462,7 +462,7 @@ def main():
 ### TO test abnormalities ###
 # INSERT INTO abnormal_login_logout_config (start_time, end_time)
 # VALUES (
-#     '2025-02-14 15:00:00',
+#     '2025-02-14 16:00:00',
 #     '2025-02-14 18:00:00'
 # );
 

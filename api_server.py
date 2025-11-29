@@ -40,7 +40,7 @@ def read_root():
 def get_all_records():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalies_log")
+    cursor.execute("SELECT * FROM anomalies_log_ueba")
     records = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in records]
@@ -54,7 +54,7 @@ def get_anomalies_last_24_hours():
     cursor = conn.cursor()
     last_24_hours = datetime.now() - timedelta(hours=24)
     cursor.execute(
-        "SELECT COUNT(*) FROM anomalies_log WHERE timestamp >= %s;",
+        "SELECT COUNT(*) FROM anomalies_log_ueba WHERE timestamp >= %s;",
         (last_24_hours,)
     )
     count = cursor.fetchone()[0]
@@ -66,7 +66,7 @@ def get_anomalies_last_7_days():
     conn = get_db_connection()
     cursor = conn.cursor()
     last_7_days = datetime.now() - timedelta(days=7)
-    cursor.execute("SELECT COUNT(*) FROM anomalies_log WHERE timestamp >= %s;", (last_7_days,))
+    cursor.execute("SELECT COUNT(*) FROM anomalies_log_ueba WHERE timestamp >= %s;", (last_7_days,))
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -78,7 +78,7 @@ def get_anomalies_last_30_days():
     conn = get_db_connection()
     cursor = conn.cursor()
     last_30_days = datetime.now() - timedelta(days=30)
-    cursor.execute("SELECT COUNT(*) FROM anomalies_log WHERE timestamp >= %s;", (last_30_days,))
+    cursor.execute("SELECT COUNT(*) FROM anomalies_log_ueba WHERE timestamp >= %s;", (last_30_days,))
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -89,7 +89,7 @@ def get_total_anomalies():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT COUNT(*) FROM anomalies_log ",    )
+        "SELECT COUNT(*) FROM anomalies_log_ueba ",    )
     count = cursor.fetchone()[0]
     conn.close()
     return {"total_anomalies": count}
@@ -98,7 +98,7 @@ def get_total_anomalies():
 def get_total_users():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(DISTINCT user_id) FROM anomalies_log") 
+    cursor.execute("SELECT COUNT(DISTINCT user_id) FROM anomalies_log_ueba") 
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -108,7 +108,7 @@ def get_total_users():
 def get_total_entities():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(DISTINCT device_mac) FROM anomalies_log") 
+    cursor.execute("SELECT COUNT(DISTINCT device_mac) FROM anomalies_log_ueba") 
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -119,7 +119,7 @@ def get_total_entities():
 def get_last_anomaly():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT * FROM anomalies_log ORDER BY timestamp DESC LIMIT 1;")
+    cursor.execute("SELECT DISTINCT * FROM anomalies_log_ueba ORDER BY timestamp DESC LIMIT 1;")
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else {}
@@ -146,7 +146,7 @@ def get_daily_anomalies_by_type():
             DATE(timestamp) AS day,
             event_type,
             COUNT(*) AS count
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY day, event_type
         ORDER BY day DESC, event_type;
     """)
@@ -177,7 +177,7 @@ def get_user_anomaly_summary():
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_24_hours,
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_7_days,
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_30_days
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY user_id
     """, (last_24h, last_7d, last_30d))
     summary_rows = cursor.fetchall()
@@ -185,7 +185,7 @@ def get_user_anomaly_summary():
     # Fetch event type counts per user (numeric only)
     cursor.execute("""
         SELECT user_id, event_type, COUNT(*)
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY user_id, event_type
     """)
     event_type_rows = cursor.fetchall()
@@ -232,7 +232,7 @@ def get_users_list():
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_24_hours,
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_7_days,
             SUM(CASE WHEN timestamp >= %s THEN 1 ELSE 0 END) AS anomalies_last_30_days
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY user_id
     """, (last_24h, last_7d, last_30d))
     summary_rows = cursor.fetchall()
@@ -240,7 +240,7 @@ def get_users_list():
     # Fetch event type counts per user (numeric only)
     cursor.execute("""
         SELECT user_id, event_type, COUNT(*)
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY user_id, event_type
     """)
     event_type_rows = cursor.fetchall()
@@ -248,10 +248,10 @@ def get_users_list():
     # Fetch highest severity log_text per user
     cursor.execute("""
         SELECT a.user_id, a.log_text
-        FROM anomalies_log a
+        FROM anomalies_log_ueba a
         INNER JOIN (
             SELECT user_id, MAX(CAST(severity AS INTEGER)) AS max_severity
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             GROUP BY user_id
         ) b
         ON a.user_id = b.user_id AND CAST(a.severity AS INTEGER) = b.max_severity
@@ -294,7 +294,7 @@ def all_24hr_anomalies():
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalies_log WHERE timestamp >= NOW() - INTERVAL '24 hours'")
+    cursor.execute("SELECT * FROM anomalies_log_ueba WHERE timestamp >= NOW() - INTERVAL '24 hours'")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -308,7 +308,7 @@ def all_24hr_anomalies():
 def all_7days_anomalies():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalies_log WHERE timestamp >= NOW() - INTERVAL '7 days'")
+    cursor.execute("SELECT * FROM anomalies_log_ueba WHERE timestamp >= NOW() - INTERVAL '7 days'")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -321,7 +321,7 @@ def all_7days_anomalies():
 def all_30days_anomalies():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalies_log WHERE timestamp >= NOW() - INTERVAL '30 days'")
+    cursor.execute("SELECT * FROM anomalies_log_ueba WHERE timestamp >= NOW() - INTERVAL '30 days'")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -334,7 +334,7 @@ def all_30days_anomalies():
 def all_anomalies_count():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM anomalies_log")
+    cursor.execute("SELECT COUNT(*) FROM anomalies_log_ueba")
     total = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -366,7 +366,7 @@ def get_total_user_list():
                 COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '7 days') AS anomalies_last_7_days,
                 COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '30 days') AS anomalies_last_30_days,
                 ROUND(AVG(CAST(severity AS INTEGER))) AS avg_severity
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE timestamp IS NOT NULL
             GROUP BY user_id
         ) e
@@ -375,7 +375,7 @@ def get_total_user_list():
                 user_id,
                 COUNT(DISTINCT device_mac) AS total_devices,
                 ARRAY_AGG(DISTINCT device_mac) AS device_mac_list
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE device_mac IS NOT NULL
             GROUP BY user_id
         ) d ON e.user_id = d.user_id
@@ -383,7 +383,7 @@ def get_total_user_list():
             SELECT
                 user_id,
                 MAX(timestamp) AS latest_event_timestamp
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE timestamp IS NOT NULL
             GROUP BY user_id
         ) t ON e.user_id = t.user_id
@@ -425,7 +425,7 @@ def get_total_entity_list():
                 COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '7 days') AS anomalies_last_7_days,
                 COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '30 days') AS anomalies_last_30_days,
                 ROUND(AVG(CAST(severity AS INTEGER))) AS avg_severity
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE device_mac IS NOT NULL AND timestamp IS NOT NULL
             GROUP BY device_mac
         ) e
@@ -434,7 +434,7 @@ def get_total_entity_list():
                 device_mac,
                 ARRAY_AGG(DISTINCT user_id) AS user_id_list,
                 COUNT(DISTINCT user_id) AS total_users
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE device_mac IS NOT NULL
             GROUP BY device_mac
         ) u ON e.device_mac = u.device_mac
@@ -442,7 +442,7 @@ def get_total_entity_list():
             SELECT
                 device_mac,
                 MAX(timestamp) AS latest_event_timestamp
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE device_mac IS NOT NULL AND timestamp IS NOT NULL
             GROUP BY device_mac
         ) t ON e.device_mac = t.device_mac
@@ -463,7 +463,7 @@ def get_top_5_anomalies():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT event_type, COUNT(*) as count
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY event_type
         ORDER BY count DESC
         LIMIT 5;
@@ -487,7 +487,7 @@ def get_top_5_anomalies():
 def get_unique_user_list():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT user_id FROM anomalies_log")
+    cursor.execute("SELECT DISTINCT user_id FROM anomalies_log_ueba")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -511,7 +511,7 @@ def get_user_details(user_id: str):
             COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '7 days') AS anomalies_last_7_days,
             COUNT(*) FILTER (WHERE timestamp >= NOW() - INTERVAL '30 days') AS anomalies_last_30_days,
             ARRAY_AGG(DISTINCT device_mac) AS device_list
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         GROUP BY user_id;
     """, (user_id,))
@@ -522,7 +522,7 @@ def get_user_details(user_id: str):
     # 2. Top 4 latest event_type + event_subtype
     cursor.execute("""
         SELECT event_type, event_subtype, timestamp, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         ORDER BY timestamp DESC
         LIMIT 4;
@@ -534,7 +534,7 @@ def get_user_details(user_id: str):
     # 3. Latest event_reason
     cursor.execute("""
         SELECT event_reason, timestamp
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         ORDER BY timestamp DESC
         LIMIT 1;
@@ -546,7 +546,7 @@ def get_user_details(user_id: str):
     # 4. All event_types and their count (numeric event_type only)
     cursor.execute("""
         SELECT event_type, COUNT(*) AS count
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         GROUP BY event_type
         ORDER BY count DESC;
@@ -575,28 +575,28 @@ def get_user_details_by_range(user_id: str, range: str):
     if range in ("24hr", "24h"):
         query = """
         SELECT timestamp, event_type, event_subtype, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE timestamp >= NOW() - INTERVAL '24 hours' AND user_id = %s
         ORDER BY timestamp DESC
         """
     elif range in ("07d", "7d"):
         query = """
         SELECT timestamp, event_type, event_subtype, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE timestamp >= NOW() - INTERVAL '7 days' AND user_id = %s
         ORDER BY timestamp DESC
         """
     elif range == "30d":
         query = """
         SELECT timestamp, event_type, event_subtype, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE timestamp >= NOW() - INTERVAL '30 days' AND user_id = %s
         ORDER BY timestamp DESC
         """
     else:  # "all"
         query = """
         SELECT timestamp, event_type, event_subtype, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         ORDER BY timestamp DESC
         """
@@ -632,7 +632,7 @@ def get_user_today_anomaly(user_id: str):
             event_type,
             timestamp
         FROM 
-            anomalies_log
+            anomalies_log_ueba
         WHERE 
             user_id  = %s
             AND timestamp >= CURRENT_DATE
@@ -661,7 +661,7 @@ def get_top_5_user_by_total_anomaly():
         user_id,
         COUNT(*) AS total_events
     FROM 
-        anomalies_log
+        anomalies_log_ueba
     GROUP BY 
         user_id
     ORDER BY 
@@ -689,7 +689,7 @@ def get_top_users_events():
             SELECT 
                 user_id,
                 COUNT(*) AS total_events
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             GROUP BY user_id
         ),
         top_5_users AS (
@@ -704,7 +704,7 @@ def get_top_users_events():
                 al.user_id,
                 al.event_type,
                 COUNT(*) AS event_count
-            FROM anomalies_log al
+            FROM anomalies_log_ueba al
             JOIN top_5_users tu ON al.user_id = tu.user_id
             GROUP BY al.user_id, al.event_type
         ),
@@ -763,7 +763,7 @@ def get_anomalies_vs_time():
     # Group by hour of the day (00,01,...,23)
     cursor.execute("""
         SELECT EXTRACT(HOUR FROM timestamp)::INT AS hour, COUNT(*) 
-        FROM anomalies_log 
+        FROM anomalies_log_ueba 
         WHERE timestamp >= %s 
         GROUP BY hour 
         ORDER BY hour;
@@ -773,7 +773,7 @@ def get_anomalies_vs_time():
 
     cursor.execute("""
         SELECT EXTRACT(HOUR FROM timestamp)::INT AS hour, COUNT(*) 
-        FROM anomalies_log 
+        FROM anomalies_log_ueba 
         WHERE timestamp >= %s 
         GROUP BY hour 
         ORDER BY hour;
@@ -783,7 +783,7 @@ def get_anomalies_vs_time():
 
     cursor.execute("""
         SELECT EXTRACT(HOUR FROM timestamp)::INT AS hour, COUNT(*) 
-        FROM anomalies_log 
+        FROM anomalies_log_ueba 
         WHERE timestamp >= %s 
         GROUP BY hour 
         ORDER BY hour;
@@ -814,7 +814,7 @@ def get_anomalies_vs_severity():
     cursor = conn.cursor()
 
     # Fetch all risk scores
-    cursor.execute("SELECT risk_score FROM anomalies_log;")
+    cursor.execute("SELECT risk_score FROM anomalies_log_ueba;")
     rows = cursor.fetchall()
     scores = [r[0] for r in rows]
 
@@ -849,7 +849,7 @@ def get_suspicious_users_list():
     # Suspicious = user has at least one anomaly with risk_score > 30
     cursor.execute("""
         SELECT DISTINCT user_id, device_mac
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE risk_score > 30
     """)
     rows = cursor.fetchall()
@@ -878,7 +878,7 @@ def get_user_login_behaviour(user_id: str):
     # Count login events grouped by day for this user
     cursor.execute("""
         SELECT DATE(timestamp) AS day, COUNT(*) 
-        FROM user_session_tracking
+        FROM user_session_tracking_ueba
         WHERE username = %s AND event_type = 'login'
         GROUP BY day
         ORDER BY day;
@@ -916,7 +916,7 @@ def get_user_resource_usage(user_id: str):
                 AVG(cpu_percent) AS avg_cpu,
                 AVG(memory_percent) AS avg_mem,
                 AVG(load_average) AS avg_load
-            FROM latency_monitoring
+            FROM latency_monitoring_ueba
             WHERE username = %s
             GROUP BY day
             ORDER BY day;
@@ -951,7 +951,7 @@ def get_user_risk_score(user_id: str):
     try:
         cursor.execute("""
             SELECT AVG(risk_score)
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE user_id = %s
         """, (user_id,))
         
@@ -976,7 +976,7 @@ def get_user_activity_type(user_id: str):
 
     cursor.execute("""
         SELECT event_type, COUNT(*) 
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         WHERE user_id = %s
         GROUP BY event_type
         ORDER BY COUNT(*) DESC;
@@ -1010,7 +1010,7 @@ def get_recent_anomalies():
             device_mac,
             MAX(timestamp) AS last_active,
             MAX(risk_score) AS risk_score
-        FROM anomalies_log
+        FROM anomalies_log_ueba
         GROUP BY user_id, device_mac
         ORDER BY last_active DESC
         LIMIT 50;
@@ -1041,7 +1041,7 @@ def get_recent_anomalies():
                 SUM(CASE WHEN timestamp > NOW() - INTERVAL '24 HOURS' THEN 1 ELSE 0 END) AS last24,
                 SUM(CASE WHEN timestamp > NOW() - INTERVAL '7 DAYS' THEN 1 ELSE 0 END) AS last7,
                 SUM(CASE WHEN timestamp > NOW() - INTERVAL '30 DAYS' THEN 1 ELSE 0 END) AS last30
-            FROM anomalies_log
+            FROM anomalies_log_ueba
             WHERE user_id = %s;
         """, (user_id,))
         counts = cursor.fetchone()
@@ -1386,7 +1386,7 @@ def api_delete_alert_suppression_config(config_id: int):
 def get_active_clients_count():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM client_status WHERE status='active'")
+    cursor.execute("SELECT COUNT(*) FROM client_status_ueba WHERE status='active'")
     count = cursor.fetchone()[0]
     cursor.close()
     conn.close()
@@ -1397,7 +1397,7 @@ def get_active_clients_count():
 def get_clients_status_list():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT client_id, last_seen, status FROM client_status ORDER BY client_id")
+    cursor.execute("SELECT client_id, last_seen, status FROM client_status_ueba ORDER BY client_id")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -1406,51 +1406,6 @@ def get_clients_status_list():
     return result
 
 
-# def main(stop_event=None):
-
-#     import uvicorn
-#     import logging
-#     from pathlib import Path
-#     from datetime import datetime
-
-#     print("\033[1;32m  !!!!!UEBA DASHBOARD API SERVER (UDP) started!!!!!!\033[0m") 
-
-#     # Prepare log folder inside ~/ueba_server_log
-#     USER_HOME = Path.home()
-#     BASE_LOG_DIR = USER_HOME / "ueba_server_log"
-#     BASE_LOG_DIR.mkdir(exist_ok=True)
-
-#     today = datetime.now().strftime("%d%b")
-#     dashboard_log = BASE_LOG_DIR / f"ueba_dashboard_api.log_{today}"
-
-#     # Configure Uvicorn but suppress default access logging to console
-#     config = uvicorn.Config(app, host=_cfg.get("ueba_dashboard", {}).get("host", _cfg["udp"]["server_ip"]),
-#                             port=int(_cfg.get("ueba_dashboard", {}).get("port", 8000)),
-#                             reload=False, log_config=None)
-#     server = uvicorn.Server(config)
-
-#     # Redirect uvicorn.access to file
-#     uvicorn_access = logging.getLogger("uvicorn.access")
-#     fh = logging.FileHandler(dashboard_log, mode="a")
-#     fh.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
-#     uvicorn_access.addHandler(fh)
-#     uvicorn_access.propagate = False   # don’t bubble to console
-
-#     if stop_event is None:
-#         # Standalone run (python api_server.py)
-#         server.run()
-#     else:
-#         # Run inside consumer_main with cooperative shutdown
-#         thread = threading.Thread(target=server.run, daemon=True)
-#         thread.start()
-
-#         # Poll until stop_event is set
-#         while not stop_event.is_set():
-#             time.sleep(0.5)
-
-#         # Tell uvicorn to shut down
-#         server.should_exit = True
-#         thread.join()
 
 def main(stop_event=None):
 

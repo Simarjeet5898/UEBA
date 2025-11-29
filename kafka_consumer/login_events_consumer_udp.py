@@ -9,7 +9,7 @@ rule-based logic and machine learning.
 
 Key Features:
 - Consumes login/logout events from Kafka in real-time
-- Persists session data to PostgreSQL (`user_session_tracking` table)
+- Persists session data to PostgreSQL (`user_session_tracking_ueba` table)
 - Detects:
   • Abnormal login behavior (off-hours, unusual IPs, short/long sessions, holiday/weekend logins)
   • Dormant account usage
@@ -98,7 +98,7 @@ def get_login_logout_baseline():
         cur = conn.cursor()
         cur.execute("""
             SELECT start_time, end_time
-            FROM abnormal_login_logout_config
+            FROM abnormal_login_logout_config_ueba
             ORDER BY updated_at DESC
             LIMIT 1;
         """)
@@ -124,6 +124,44 @@ def get_login_logout_baseline():
     print(f"[CONFIG] Using default baseline window: {DEFAULT_BASELINE['login_window']}")
     return DEFAULT_BASELINE
 
+def init_db():
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_session_tracking_ueba (
+                id SERIAL PRIMARY KEY,
+                timestamp TEXT,
+                username TEXT,
+                event_type TEXT,
+                login_time TEXT,
+                logout_time TEXT,
+                session_duration_seconds INTEGER,
+                last_login_time TEXT,
+                hostname TEXT,
+                source_os TEXT,
+                remote_ip TEXT,
+                lan_ip TEXT,
+                auth_type TEXT,
+                active_mac TEXT,
+                mac_addresses TEXT,
+                public_ip TEXT,
+                geo_country TEXT,
+                geo_region TEXT,
+                geo_city TEXT,
+                snapshot_date DATE
+            );
+        """)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("[DB] user_session_tracking_ueba table ensured on init")
+
+    except Exception as e:
+        LOG.error(f"[DB INIT] Failed to create table: {e}")
+
 
 def user_session_data(event):
     try:
@@ -132,7 +170,7 @@ def user_session_data(event):
 
         # 1. Create table if not exists (original + snapshot_date)
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS user_session_tracking (
+            CREATE TABLE IF NOT EXISTS user_session_tracking_ueba (
                 id SERIAL PRIMARY KEY,
                 timestamp TEXT,
                 username TEXT,
@@ -168,7 +206,7 @@ def user_session_data(event):
         # STEP 1 — CHECK if a row already exists for today
         # -----------------------------------------------------
         cur.execute("""
-            SELECT id FROM user_session_tracking
+            SELECT id FROM user_session_tracking_ueba
             WHERE username = %s
               AND hostname = %s
               AND snapshot_date = %s
@@ -185,7 +223,7 @@ def user_session_data(event):
             if existing_row:
                 # --> UPDATE same row (reset session)
                 cur.execute("""
-                    UPDATE user_session_tracking
+                    UPDATE user_session_tracking_ueba
                     SET 
                         timestamp = %s,
                         event_type = 'login',
@@ -224,7 +262,7 @@ def user_session_data(event):
             else:
                 # --> INSERT NEW ROW for today's first login
                 cur.execute("""
-                    INSERT INTO user_session_tracking
+                    INSERT INTO user_session_tracking_ueba
                     (timestamp, username, event_type, login_time, logout_time,
                      session_duration_seconds, last_login_time, hostname,
                      source_os, remote_ip, lan_ip, auth_type, active_mac,
@@ -259,13 +297,13 @@ def user_session_data(event):
         elif event.get("event_type") == "logout":
 
             cur.execute("""
-                UPDATE user_session_tracking
+                UPDATE user_session_tracking_ueba
                 SET 
                     logout_time = %s,
                     session_duration_seconds = %s,
                     event_type = 'logout'
                 WHERE id = (
-                    SELECT id FROM user_session_tracking
+                    SELECT id FROM user_session_tracking_ueba
                     WHERE username = %s
                       AND hostname = %s
                       AND snapshot_date = %s
@@ -371,7 +409,7 @@ def detect_anomalous_user_session(event, user_baseline):
         cur = conn.cursor()
         cur.execute("""
             SELECT COUNT(*)
-            FROM user_session_tracking
+            FROM user_session_tracking_ueba
             WHERE username = %s
               AND snapshot_date = %s
               AND session_duration_seconds IS NOT NULL
@@ -591,7 +629,7 @@ def get_statistical_baseline(username, min_samples=10):
         # fetch last N login/logout times for this user
         cur.execute("""
             SELECT login_time, logout_time
-            FROM user_session_tracking
+            FROM user_session_tracking_ueba
             WHERE username = %s
             AND login_time IS NOT NULL  
             ORDER BY id DESC
@@ -640,6 +678,7 @@ def main(stop_event=None):
     print("\033[1;32m  !!!!!!!!!!!  Login Events consumer running (UDP)  !!!!!!!!!!!!!!\033[0m")
     LOG.info("!!!!!!!!!!! Login Events consumer running (UDP) !!!!!!!!!!!")
     
+    init_db() 
     # ensure_raw_analysis_log_exists()
     try:
         # while True:

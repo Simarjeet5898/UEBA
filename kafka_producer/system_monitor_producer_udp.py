@@ -73,7 +73,7 @@ def convert_datetime(obj):
         return obj
 
 
-# ─── Deduplication Cache ─────────────────────────────────────────────────────
+
 sent_event_cache = {
     "new_users": set(),
     "account_lockouts": 0,
@@ -314,12 +314,11 @@ def main():
                     # # "account_lockouts": data.get("account_lockouts"),
                     "locked_users": data.get("locked_users"),
                     "application_usage":data.get("application_usage"),
-                    "network_status":data.get("network_status"),
-                    "kernel_latency": data.get("kernel_latency"),
-                    "scheduling_latency": data.get("scheduling_latency"),
-                    "realtime_latency": data.get("realtime_latency")
+                    # "network_status":data.get("network_status"),
+                    # "kernel_latency": data.get("kernel_latency"),
+                    # "scheduling_latency": data.get("scheduling_latency"),
+                    # "realtime_latency": data.get("realtime_latency")
 
-                
                 }
                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")
    

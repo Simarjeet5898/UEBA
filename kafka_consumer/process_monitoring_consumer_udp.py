@@ -36,12 +36,12 @@ DB_CONFIG = {
 }
 
 
-# ─── Ensure process_monitoring table exists ───
+# ─── Ensure process_monitoring_ueba table exists ───
 
 def ensure_table(conn):
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS process_monitoring (
+        CREATE TABLE IF NOT EXISTS process_monitoring_ueba (
             id SERIAL PRIMARY KEY,
             event TEXT,
             username TEXT,
@@ -110,7 +110,7 @@ def detect_suspicious_process(record):
 
 def insert_process_record(conn, record, metrics):
     """
-    Insert a single process lifecycle record into process_monitoring table.
+    Insert a single process lifecycle record into process_monitoring_ueba table.
     Supports all UEBA lifecycle events:
         - process_created     (entry/initiation)
         - process_exited      (completion)
@@ -142,7 +142,7 @@ def insert_process_record(conn, record, metrics):
 
     # ─── Build SQL Insert ───
     insert_sql = """
-        INSERT INTO process_monitoring (
+        INSERT INTO process_monitoring_ueba (
             event, username, process_name, pid, ppid, cmdline, terminal,
             is_interactive, is_likely_user_process, likely_background_loop,
             start_time, end_time, execution_duration, timestamp, parent_name
@@ -205,8 +205,7 @@ def insert_process_record(conn, record, metrics):
 
 
 
-# ─── Main consumer logic ───
-# def main():
+
 def main(stop_event=None):
     conn = psycopg2.connect(**DB_CONFIG)
     ensure_table(conn)
@@ -218,13 +217,7 @@ def main(stop_event=None):
     while not (stop_event and stop_event.is_set()):
         data, addr = sock.recvfrom(65535)
         metrics = json.loads(data.decode("utf-8"))
-        # metrics = queues["process"].get()
-        # print(f"[DEBUG] Process Monitoring Consumer received raw event: {metrics.get('topic')} | Keys: {list(metrics.keys())}")
-
-
-        # Only process system-metrics events
-        # if metrics.get("topic") != "system-metrics":
-        #     continue
+        
         if metrics.get("topic") != "process-monitoring":
             continue
 

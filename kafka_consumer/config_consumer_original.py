@@ -118,7 +118,7 @@ def init_privileged_user_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS privileged_user_config_ueba (
+        CREATE TABLE IF NOT EXISTS privileged_user_config (
             id SERIAL PRIMARY KEY,
             privileged_users TEXT[],
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -130,19 +130,17 @@ def init_privileged_user_table():
     conn.close()
 
 
-
-
 def add_privileged_user_config(privileged_users):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM privileged_user_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM privileged_user_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE privileged_user_config_ueba
+            UPDATE privileged_user_config
             SET privileged_users = %s,
                 updated_at = %s
             WHERE id = %s;
@@ -150,7 +148,7 @@ def add_privileged_user_config(privileged_users):
 
     else:
         cursor.execute("""
-            INSERT INTO privileged_user_config_ueba
+            INSERT INTO privileged_user_config
             (privileged_users, updated_at)
             VALUES (%s, %s)
             RETURNING id;
@@ -167,7 +165,7 @@ def add_privileged_user_config(privileged_users):
 def get_all_privileged_user_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM privileged_user_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM privileged_user_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -180,7 +178,7 @@ def get_all_privileged_user_configs():
 def get_privileged_user_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM privileged_user_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM privileged_user_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -194,7 +192,7 @@ def update_privileged_user_config(config_id, privileged_users):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE privileged_user_config_ueba
+        UPDATE privileged_user_config
         SET privileged_users = %s,
             updated_at = %s
         WHERE id = %s;
@@ -209,7 +207,7 @@ def update_privileged_user_config(config_id, privileged_users):
 def delete_privileged_user_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM privileged_user_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM privileged_user_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -221,7 +219,7 @@ def init_anomalous_file_access_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS anomalous_file_access_config_ueba (
+        CREATE TABLE IF NOT EXISTS anomalous_file_access_config (
             id SERIAL PRIMARY KEY,
             sensitive_files TEXT[],
             sensitive_file_extensions TEXT[],
@@ -234,18 +232,33 @@ def init_anomalous_file_access_table():
     conn.close()
 
 
+# ---------- CREATE ----------
+# def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO anomalous_file_access_config 
+#         (sensitive_files, sensitive_file_extensions, updated_at)
+#         VALUES (%s, %s, %s)
+#         RETURNING id;
+#     """, (sensitive_files, sensitive_file_extensions, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
 
 def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM anomalous_file_access_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM anomalous_file_access_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE anomalous_file_access_config_ueba
+            UPDATE anomalous_file_access_config
             SET sensitive_files = %s,
                 sensitive_file_extensions = %s,
                 updated_at = %s
@@ -254,7 +267,7 @@ def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions)
 
     else:
         cursor.execute("""
-            INSERT INTO anomalous_file_access_config_ueba
+            INSERT INTO anomalous_file_access_config
             (sensitive_files, sensitive_file_extensions, updated_at)
             VALUES (%s, %s, %s)
             RETURNING id;
@@ -273,7 +286,7 @@ def add_anomalous_file_access_config(sensitive_files, sensitive_file_extensions)
 def get_all_anomalous_file_access_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalous_file_access_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM anomalous_file_access_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -286,7 +299,7 @@ def get_all_anomalous_file_access_configs():
 def get_anomalous_file_access_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM anomalous_file_access_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM anomalous_file_access_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -300,7 +313,7 @@ def update_anomalous_file_access_config(config_id, sensitive_files, sensitive_fi
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE anomalous_file_access_config_ueba
+        UPDATE anomalous_file_access_config
         SET sensitive_files = %s,
             sensitive_file_extensions = %s,
             updated_at = %s
@@ -316,7 +329,7 @@ def update_anomalous_file_access_config(config_id, sensitive_files, sensitive_fi
 def delete_anomalous_file_access_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM anomalous_file_access_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM anomalous_file_access_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -327,7 +340,7 @@ def init_dormancy_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS dormancy_config_ueba (
+        CREATE TABLE IF NOT EXISTS dormancy_config (
             id SERIAL PRIMARY KEY,
             dormancy_value INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -339,18 +352,34 @@ def init_dormancy_table():
     conn.close()
 
 
+# ---------- CREATE ----------
+
+# def add_dormancy_config(dormancy_value):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO dormancy_config 
+#         (dormancy_value, updated_at)
+#         VALUES (%s, %s)
+#         RETURNING id;
+#     """, (dormancy_value, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
 
 def add_dormancy_config(dormancy_value):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM dormancy_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM dormancy_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE dormancy_config_ueba
+            UPDATE dormancy_config
             SET dormancy_value = %s,
                 updated_at = %s
             WHERE id = %s;
@@ -358,7 +387,7 @@ def add_dormancy_config(dormancy_value):
 
     else:
         cursor.execute("""
-            INSERT INTO dormancy_config_ueba
+            INSERT INTO dormancy_config
             (dormancy_value, updated_at)
             VALUES (%s, %s)
             RETURNING id;
@@ -375,7 +404,7 @@ def add_dormancy_config(dormancy_value):
 def get_all_dormancy_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM dormancy_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM dormancy_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -388,7 +417,7 @@ def get_all_dormancy_configs():
 def get_dormancy_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM dormancy_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM dormancy_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -402,7 +431,7 @@ def update_dormancy_config(config_id, dormancy_value):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE dormancy_config_ueba
+        UPDATE dormancy_config
         SET dormancy_value = %s,
             updated_at = %s
         WHERE id = %s;
@@ -417,7 +446,7 @@ def update_dormancy_config(config_id, dormancy_value):
 def delete_dormancy_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM dormancy_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM dormancy_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -429,7 +458,7 @@ def init_bulk_data_operation_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS bulk_data_operation_config_ueba (
+        CREATE TABLE IF NOT EXISTS bulk_data_operation_config (
             id SERIAL PRIMARY KEY,
             threshold_value FLOAT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -441,18 +470,34 @@ def init_bulk_data_operation_table():
     conn.close()
 
 
+# ---------- CREATE ----------
+
+# def add_bulk_data_operation_config(threshold_value):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO bulk_data_operation_config 
+#         (threshold_value, updated_at)
+#         VALUES (%s, %s)
+#         RETURNING id;
+#     """, (threshold_value, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
 
 def add_bulk_data_operation_config(threshold_value):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM bulk_data_operation_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM bulk_data_operation_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE bulk_data_operation_config_ueba
+            UPDATE bulk_data_operation_config
             SET threshold_value = %s,
                 updated_at = %s
             WHERE id = %s;
@@ -460,7 +505,7 @@ def add_bulk_data_operation_config(threshold_value):
 
     else:
         cursor.execute("""
-            INSERT INTO bulk_data_operation_config_ueba
+            INSERT INTO bulk_data_operation_config
             (threshold_value, updated_at)
             VALUES (%s, %s)
             RETURNING id;
@@ -477,7 +522,7 @@ def add_bulk_data_operation_config(threshold_value):
 def get_all_bulk_data_operation_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM bulk_data_operation_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM bulk_data_operation_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -490,7 +535,7 @@ def get_all_bulk_data_operation_configs():
 def get_bulk_data_operation_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM bulk_data_operation_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM bulk_data_operation_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -504,7 +549,7 @@ def update_bulk_data_operation_config(config_id, threshold_value):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE bulk_data_operation_config_ueba
+        UPDATE bulk_data_operation_config
         SET threshold_value = %s,
             updated_at = %s
         WHERE id = %s;
@@ -519,19 +564,19 @@ def update_bulk_data_operation_config(config_id, threshold_value):
 def delete_bulk_data_operation_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM bulk_data_operation_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM bulk_data_operation_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()
     return True
 
 
-
+# ---------- CREATE TABLE IF NOT EXISTS ----------
 def init_abnormal_login_logout_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS abnormal_login_logout_config_ueba (
+        CREATE TABLE IF NOT EXISTS abnormal_login_logout_config (
             id SERIAL PRIMARY KEY,
             start_time TIMESTAMP,
             end_time TIMESTAMP,
@@ -544,17 +589,33 @@ def init_abnormal_login_logout_table():
     conn.close()
 
 
+# ---------- CREATE ----------
+# def add_abnormal_login_logout_config(start_time, end_time):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO abnormal_login_logout_config 
+#         (start_time, end_time, updated_at)
+#         VALUES (%s, %s, %s)
+#         RETURNING id;
+#     """, (start_time, end_time, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_abnormal_login_logout_config(start_time, end_time):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM abnormal_login_logout_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM abnormal_login_logout_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE abnormal_login_logout_config_ueba
+            UPDATE abnormal_login_logout_config
             SET start_time = %s,
                 end_time = %s,
                 updated_at = %s
@@ -563,7 +624,7 @@ def add_abnormal_login_logout_config(start_time, end_time):
 
     else:
         cursor.execute("""
-            INSERT INTO abnormal_login_logout_config_ueba
+            INSERT INTO abnormal_login_logout_config
             (start_time, end_time, updated_at)
             VALUES (%s, %s, %s)
             RETURNING id;
@@ -580,7 +641,7 @@ def add_abnormal_login_logout_config(start_time, end_time):
 def get_all_abnormal_login_logout_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM abnormal_login_logout_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM abnormal_login_logout_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -593,7 +654,7 @@ def get_all_abnormal_login_logout_configs():
 def get_abnormal_login_logout_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM abnormal_login_logout_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM abnormal_login_logout_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -607,7 +668,7 @@ def update_abnormal_login_logout_config(config_id, start_time, end_time):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE abnormal_login_logout_config_ueba
+        UPDATE abnormal_login_logout_config
         SET start_time = %s,
             end_time = %s,
             updated_at = %s
@@ -623,7 +684,7 @@ def update_abnormal_login_logout_config(config_id, start_time, end_time):
 def delete_abnormal_login_logout_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM abnormal_login_logout_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM abnormal_login_logout_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()
@@ -635,7 +696,7 @@ def init_alert_suppression_table():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS alert_suppression_config_ueba (
+        CREATE TABLE IF NOT EXISTS alert_suppression_config (
             id SERIAL PRIMARY KEY,
             usernames TEXT[],
             hostnames TEXT[],
@@ -655,17 +716,32 @@ def init_alert_suppression_table():
 
 # ---------- CREATE ----------
 
+# def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end):
+#     conn = get_db_connection()
+#     cursor = conn.cursor()
+#     cursor.execute("""
+#         INSERT INTO alert_suppression_config 
+#         (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, updated_at)
+#         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+#         RETURNING id;
+#     """, (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, datetime.now()))
+#     config_id = cursor.fetchone()[0]
+#     conn.commit()
+#     cursor.close()
+#     conn.close()
+#     return config_id
+
 def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end):
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM alert_suppression_config_ueba LIMIT 1;")
+    cursor.execute("SELECT id FROM alert_suppression_config LIMIT 1;")
     row = cursor.fetchone()
 
     if row:
         config_id = row[0]
         cursor.execute("""
-            UPDATE alert_suppression_config_ueba
+            UPDATE alert_suppression_config
             SET usernames = %s,
                 hostnames = %s,
                 ip_ranges = %s,
@@ -679,7 +755,7 @@ def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequenc
 
     else:
         cursor.execute("""
-            INSERT INTO alert_suppression_config_ueba
+            INSERT INTO alert_suppression_config
             (usernames, hostnames, ip_ranges, event_frequency_threshold, event_sources, timestamp_start, timestamp_end, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id;
@@ -696,7 +772,7 @@ def add_alert_suppression_config(usernames, hostnames, ip_ranges, event_frequenc
 def get_all_alert_suppression_configs():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM alert_suppression_config_ueba ORDER BY id;")
+    cursor.execute("SELECT * FROM alert_suppression_config ORDER BY id;")
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     result = [dict(zip(columns, row)) for row in rows]
@@ -709,7 +785,7 @@ def get_all_alert_suppression_configs():
 def get_alert_suppression_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM alert_suppression_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("SELECT * FROM alert_suppression_config WHERE id = %s;", (config_id,))
     row = cursor.fetchone()
     columns = [desc[0] for desc in cursor.description]
     result = dict(zip(columns, row)) if row else None
@@ -723,7 +799,7 @@ def update_alert_suppression_config(config_id, usernames, hostnames, ip_ranges, 
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        UPDATE alert_suppression_config_ueba
+        UPDATE alert_suppression_config
         SET usernames = %s,
             hostnames = %s,
             ip_ranges = %s,
@@ -744,7 +820,7 @@ def update_alert_suppression_config(config_id, usernames, hostnames, ip_ranges, 
 def delete_alert_suppression_config(config_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM alert_suppression_config_ueba WHERE id = %s;", (config_id,))
+    cursor.execute("DELETE FROM alert_suppression_config WHERE id = %s;", (config_id,))
     conn.commit()
     cursor.close()
     conn.close()

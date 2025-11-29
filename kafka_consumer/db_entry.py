@@ -127,7 +127,7 @@ while current_date <= end_date:
 with psycopg2.connect(**DB_CONFIG) as conn:
     with conn.cursor() as cur:
         insert_query = """
-            INSERT INTO anomalies_log (
+            INSERT INTO anomalies_log_ueba (
                 event_id, user_id, timestamp, event_type, event_subtype, severity,
                 attacker_info, component, resource, event_reason,
                 device_ip, device_mac, log_text, risk_score

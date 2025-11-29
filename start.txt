@@ -86,6 +86,8 @@ sudo docker start -ai ueba-snap
 source /opt/conda/etc/profile.d/conda.sh
 conda activate ueba_env
 
+pyinstaller --clean producer_main.spec
+
 
 Also need to change ownership: simar@simar-ThinkBook-14-G2-ITL:~/Documents/UEBA/UEBA_BACKEND$ sudo chown -R simar:simar /home/simar/Documents/UEBA/UEBA_BACKEND/dist
 if required: sudo chmod +x ueba_client ueba_server
@@ -297,3 +299,7 @@ to check the services running: systemctl --type=service --state=running --no-pag
 
 ######
 cut -d: -f1 /etc/passwd
+
+#cpu stress command for abnormal cpu: stress-ng --cpu 4 --cpu-load 90 --timeout 60s
+
+#stress-ng --temp-path /tmp --vm 2 --vm-bytes 80% --timeout 60s for abnormal memory

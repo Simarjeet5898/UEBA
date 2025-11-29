@@ -170,8 +170,55 @@ def dt_to_struct(dt: datetime) -> STRING_DATE_TIME_FORMAT:
         hh=dt.hour, min=dt.minute, ss=dt.second
     )
 
+def map_common_fields(raw_anomaly):
 
-def     build_abnormal_login_logout_packet(raw_anomaly):
+    from datetime import datetime
+
+    ts_str = raw_anomaly.get("timestamp", datetime.now().isoformat())
+    try:
+        dt = datetime.fromisoformat(ts_str.replace("Z","").replace("z",""))
+    except Exception:
+        dt = datetime.now()
+    # print("333333333333333333333333333")
+    raw_event_type = raw_anomaly.get("event_type", "NA")
+    raw_event_name = raw_anomaly.get("event_name", "NA")
+    raw_msg_id     = raw_anomaly.get("msg_id", "NA")
+
+    # event_type = CONFIG["event_type"].get(raw_anomaly.get("event_type", "NA"), 0)
+    # event_name = CONFIG["event_name"].get(raw_anomaly.get("event_name", "NA"), 0)
+    # msg_id = CONFIG["msg_id"].get(raw_anomaly.get("msg_id", "NA"), 0)
+    event_type = CONFIG["mappings"]["event_type"].get(raw_event_type, 0)
+    event_name = CONFIG["mappings"]["event"].get(raw_event_name, 0)
+    msg_id     = CONFIG["msg_id"].get(raw_msg_id, 0)
+
+
+
+    base = {
+        "msg_id": msg_id,
+        # "source_id": CONFIG.get("source_id", 0),
+        # "dest_id": CONFIG.get("dest_id", 0),
+        "source_id": str(CONFIG.get("source_id", "")),
+        "dest_id": str(CONFIG.get("dest_id", "")),
+        "event_id": generate_event_id(),                    # uuid string
+        "event_type": event_type,
+        "event_name": event_name,
+        "event_reason": raw_anomaly.get("event_reason", "N/A"),
+        "timestamp": dt,                                    # <-- datetime (DB TIMESTAMP)
+        "device_type": CONFIG["device_type"].get(raw_anomaly.get("device_type", "PC"), 2),
+        # "log_text": raw_anomaly.get("log_text", json.dumps(raw_anomaly)),
+        "log_text": raw_anomaly.get(
+            "log_text",
+            json.dumps(raw_anomaly, default=str)  
+        ),
+        "severity": CONFIG["mappings"]["severity"].get(raw_anomaly.get("severity", "ALERT"), 11),
+        "start_time": dt                                    # <-- datetime (DB TIMESTAMP)
+    }
+
+    base.update(get_common_system_fields())
+    return base
+
+
+def build_abnormal_login_logout_packet(raw_anomaly):
     """
     Build SIEM-ready packet for Abnormal Login anomaly.
     Uses map_common_fields() + adds specific fields.
@@ -812,52 +859,346 @@ def build_privilege_escalation_moni_packet(raw_anomaly):
     return packet
 
 
-def map_common_fields(raw_anomaly):
+def build_anomalous_ram_consumption_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Anomalous RAM Consumption anomaly.
+    Uses map_common_fields() + RAM-specific fields.
+    """
+    base = map_common_fields(raw_anomaly)
 
-    from datetime import datetime
+    # Add anomaly-specific fields
+    base.update({
+        "anomalous_ram_usage_time": raw_anomaly.get("anomalous_ram_usage_time", base.get("timestamp")),
+        "ram_anomalous_usage": float(raw_anomaly.get("ram_anomalous_usage", 0.0))
+    })
 
-    ts_str = raw_anomaly.get("timestamp", datetime.now().isoformat())
-    try:
-        dt = datetime.fromisoformat(ts_str.replace("Z","").replace("z",""))
-    except Exception:
-        dt = datetime.now()
-    # print("333333333333333333333333333")
-    raw_event_type = raw_anomaly.get("event_type", "NA")
-    raw_event_name = raw_anomaly.get("event_name", "NA")
-    raw_msg_id     = raw_anomaly.get("msg_id", "NA")
+    # Create dataclass instance
+    packet = STRUCT_ANOMALOUS_RAM_CONSUMPTION(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        anomalous_ram_usage_time=dt_to_struct(base.get("anomalous_ram_usage_time")),
+        ram_anomalous_usage=base.get("ram_anomalous_usage")
+    )
 
-    # event_type = CONFIG["event_type"].get(raw_anomaly.get("event_type", "NA"), 0)
-    # event_name = CONFIG["event_name"].get(raw_anomaly.get("event_name", "NA"), 0)
-    # msg_id = CONFIG["msg_id"].get(raw_anomaly.get("msg_id", "NA"), 0)
-    event_type = CONFIG["mappings"]["event_type"].get(raw_event_type, 0)
-    event_name = CONFIG["mappings"]["event"].get(raw_event_name, 0)
-    msg_id     = CONFIG["msg_id"].get(raw_msg_id, 0)
+    return packet
 
-    # print("\n===== DEBUG: RAW ANOMALY MAPPING =====")
-    # print("RAW event_type:", raw_event_type, " -> MAPPED:", event_type)
-    # print("RAW event_name:", raw_event_name, " -> MAPPED:", event_name)
-    # print("RAW msg_id:",     raw_msg_id,     " -> MAPPED:", msg_id)
-    # print("======================================\n")
+def build_anomalous_gpu_consumption_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Anomalous GPU Consumption anomaly.
+    Uses map_common_fields() + GPU-specific fields.
+    """
+    base = map_common_fields(raw_anomaly)
 
-    base = {
-        "msg_id": msg_id,
-        # "source_id": CONFIG.get("source_id", 0),
-        # "dest_id": CONFIG.get("dest_id", 0),
-        "source_id": str(CONFIG.get("source_id", "")),
-        "dest_id": str(CONFIG.get("dest_id", "")),
-        "event_id": generate_event_id(),                    # uuid string
-        "event_type": event_type,
-        "event_name": event_name,
-        "event_reason": raw_anomaly.get("event_reason", "N/A"),
-        "timestamp": dt,                                    # <-- datetime (DB TIMESTAMP)
-        "device_type": CONFIG["device_type"].get(raw_anomaly.get("device_type", "PC"), 2),
-        "log_text": raw_anomaly.get("log_text", json.dumps(raw_anomaly)),
-        "severity": CONFIG["mappings"]["severity"].get(raw_anomaly.get("severity", "ALERT"), 11),
-        "start_time": dt                                    # <-- datetime (DB TIMESTAMP)
-    }
+    # Add anomaly-specific fields
+    base.update({
+        "anomalous_gpu_usage_time": raw_anomaly.get("anomalous_gpu_usage_time", base.get("timestamp")),
+        "gpu_anomalous_usage": float(raw_anomaly.get("gpu_anomalous_usage", 0.0))
+    })
 
-    base.update(get_common_system_fields())
-    return base
+    # Create dataclass instance
+    packet = STRUCT_ANOMALOUS_GPU_CONSUMPTION(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        anomalous_gpu_usage_time=dt_to_struct(base.get("anomalous_gpu_usage_time")),
+        gpu_anomalous_usage=base.get("gpu_anomalous_usage")
+    )
+
+    return packet
+
+def build_anomalous_cpu_consumption_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Anomalous CPU Consumption anomaly.
+    Uses map_common_fields() + CPU-specific fields.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Add anomaly-specific fields
+    base.update({
+        "anomalous_cpu_usage_time": raw_anomaly.get("anomalous_cpu_usage_time", base.get("timestamp")),
+        "cpu_anomalous_usage": float(raw_anomaly.get("cpu_anomalous_usage", 0.0))
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_ANOMALOUS_CPU_CONSUMPTION(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        anomalous_cpu_usage_time=dt_to_struct(base.get("anomalous_cpu_usage_time")),
+        cpu_anomalous_usage=base.get("cpu_anomalous_usage")
+    )
+
+    return packet
+
+def build_agent_status_monitoring_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Agent Status Monitoring anomaly.
+    Uses map_common_fields() + agent-specific field.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Add anomaly-specific field
+    base.update({
+        "agent_id": raw_anomaly.get("agent_id", base.get("device_mac_id", "unknown"))
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_AGENT_STATUS_MONITORING(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        agent_id=base.get("agent_id")
+    )
+
+    return packet
+
+
+def build_logging_facility_status_change_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Logging Facility Status Change anomaly.
+    Uses map_common_fields() + facility-status-specific fields.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Map enumerated values using CONFIG if needed
+    old_status_raw = raw_anomaly.get("old_logging_facility_status", "NA")
+    new_status_raw = raw_anomaly.get("new_logging_facility_status", "NA")
+
+    old_status = CONFIG["logging_facility_status"].get(old_status_raw, 0)
+    new_status = CONFIG["logging_facility_status"].get(new_status_raw, 0)
+
+    # Add anomaly-specific fields
+    base.update({
+        "old_logging_facility_status": old_status,
+        "new_logging_facility_status": new_status
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_LOGGING_FACILITY_STATUS_CHANGE(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        old_logging_facility_status=base.get("old_logging_facility_status"),
+        new_logging_facility_status=base.get("new_logging_facility_status")
+    )
+
+    return packet
+
+def build_user_account_handling_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for User Account Handling anomaly.
+    Uses map_common_fields() + account-action-specific field.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Map enumerated account action through CONFIG
+    raw_action = raw_anomaly.get("account_action", "NA")
+    account_action = CONFIG["account_action"].get(raw_action, 0)
+
+    # Add anomaly-specific field
+    base.update({
+        "account_action": account_action
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_USER_ACCOUNT_HANDLING(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        account_action=base.get("account_action")
+    )
+
+    return packet
+
+def build_successful_login_after_login_failure_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Successful Login After Login Failure anomaly.
+    Uses map_common_fields() + failure-count-specific field.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Add anomaly-specific field
+    base.update({
+        "failure_count": int(raw_anomaly.get("failure_count", 0))
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_SUCCESSFUL_LOGIN_AFTER_LOGIN_FAILURE(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        failure_count=base.get("failure_count")
+    )
+
+    return packet
+
+def build_login_failure_monitoring_packet(raw_anomaly):
+    """
+    Build SIEM-ready packet for Login Failure Monitoring anomaly.
+    Uses map_common_fields() + failure-count-specific field.
+    """
+    base = map_common_fields(raw_anomaly)
+
+    # Add anomaly-specific field
+    base.update({
+        "failure_count": int(raw_anomaly.get("failure_count", 0))
+    })
+
+    # Create dataclass instance
+    packet = STRUCT_LOGIN_FAILURE_MONITORING(
+        msg_id=base.get("msg_id"),
+        source_id=base.get("source_id"),
+        event_id=base.get("event_id"),
+        event_type=base.get("event_type"),
+        event_name=base.get("event_name"),
+        event_reason=base.get("event_reason"),
+        timestamp=dt_to_struct(base.get("timestamp")),
+        attacker_ip_address=base.get("attacker_ip_address"),
+        attacker_username=base.get("attacker_username"),
+        device_hostname=base.get("device_hostname"),
+        device_username=base.get("device_username"),
+        device_mac_id=base.get("device_mac_id"),
+        device_ip_add=base.get("device_ip_add"),
+        device_type=base.get("device_type"),
+        log_text=base.get("log_text"),
+        severity=base.get("severity"),
+        pid=base.get("pid"),
+        ppid=base.get("ppid"),
+        tty=base.get("tty"),
+        cpu_time=base.get("cpu_time"),
+        start_time=dt_to_struct(base.get("start_time")),
+        failure_count=base.get("failure_count")
+    )
+
+    return packet
+
 
 
 def is_duplicate_anomaly(message):
@@ -879,48 +1220,6 @@ def is_duplicate_anomaly(message):
     return False
 
 
-# def ensure_raw_analysis_log_exists():
-#     connection = psycopg2.connect(**DB_CONFIG)
-#     cursor = connection.cursor()
-#     cursor.execute("""
-#         CREATE TABLE IF NOT EXISTS raw_analysis_log (
-#             id SERIAL PRIMARY KEY,
-#             event_id VARCHAR(255),
-#             user_id VARCHAR(255),
-#             timestamp TIMESTAMP,
-#             event_type VARCHAR(255),
-#             event_subtype VARCHAR(255),
-#             analysis_reason TEXT,
-#             risk_score FLOAT,
-#             review_status VARCHAR(50) DEFAULT 'pending',
-#             reviewer_comments TEXT
-#         );
-#     """)
-#     connection.commit()
-#     cursor.close()
-#     connection.close()
-
-# def store_raw_analysis(event, analysis_reason, risk_score):
-#     connection = psycopg2.connect(**DB_CONFIG)
-#     cursor = connection.cursor()
-#     cursor.execute("""
-#         INSERT INTO raw_analysis_log (
-#             event_id, user_id, timestamp, event_type, event_subtype, analysis_reason, risk_score
-#         ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-#     """, (
-#         event.get("event_id", "N/A"),
-#         event.get("username", "N/A"),
-#         event.get("timestamp", datetime.now()),
-#         event.get("event_type", "N/A"),
-#         event.get("event_subtype", "N/A"),
-#         analysis_reason,
-#         risk_score
-#     ))
-#     connection.commit()
-#     cursor.close()
-#     connection.close()
-#     print("Stored authentication event to Authentication Table.")
-
 
 def store_anomaly_to_database_and_siem(alert_json):
     """Store anomaly into PostgreSQL and send it to SIEM."""
@@ -934,14 +1233,14 @@ def store_anomaly_to_database_and_siem(alert_json):
 
         # 3) Ensure table (types shown as VARCHAR to match historical data; no-op if table already exists)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS anomalies_log (
+            CREATE TABLE IF NOT EXISTS anomalies_log_ueba (
                 id SERIAL PRIMARY KEY,
                 event_id VARCHAR(255),
                 user_id VARCHAR(255),
                 timestamp TIMESTAMP,
-                event_type VARCHAR(32),
-                event_subtype VARCHAR(32),
-                severity VARCHAR(32),
+                event_type VARCHAR(255),
+                event_subtype VARCHAR(255),
+                severity VARCHAR(255),
                 attacker_info TEXT,
                 component VARCHAR(255),
                 resource TEXT,
@@ -956,7 +1255,7 @@ def store_anomaly_to_database_and_siem(alert_json):
 
         # 4) Insert query
         insert_query = """
-        INSERT INTO anomalies_log (
+        INSERT INTO anomalies_log_ueba (
             event_id, user_id, timestamp, event_type, event_subtype, severity,
             attacker_info, component, resource, event_reason,
             device_ip, device_mac, log_text, risk_score
@@ -987,7 +1286,7 @@ def store_anomaly_to_database_and_siem(alert_json):
 
                 # Deduplication (compare as TEXT)
                 cursor.execute("""
-                    SELECT COUNT(*) FROM anomalies_log
+                    SELECT COUNT(*) FROM anomalies_log_ueba
                     WHERE event_type::text = %s
                       AND event_subtype::text = %s
                       AND log_text = %s
@@ -1020,7 +1319,7 @@ def store_anomaly_to_database_and_siem(alert_json):
                     float(message.get("riskScore", 0.0))
                 ))
                 connection.commit()
-                print(f"Successfully inserted in anomalies_log table {i+1}")
+                print(f"Successfully inserted in anomalies_log_ueba table {i+1}")
 
                 # --- Build SIEM payload (select single ids, not whole maps) ---
                 now = datetime.now()

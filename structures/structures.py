@@ -97,6 +97,7 @@ class STRUCT_ANOMALOUS_CPU_GPU_RAM_CONSP:
     start_time: STRING_DATE_TIME_FORMAT
 
 
+
 @dataclass
 class STRUCT_ANOMALOUS_FILE_ACCESS:
     msg_id: int
@@ -509,3 +510,212 @@ class STRUCT_PRIVILEGE_ESCALATION_MONI:
     privilege_escalation_cmd: str
     source_role: str
     target_role: str
+
+
+@dataclass
+class STRUCT_LOGIN_FAILURE_MONITORING:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    failure_count: int
+
+@dataclass
+class STRUCT_SUCCESSFUL_LOGIN_AFTER_LOGIN_FAILURE:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    failure_count: int
+
+@dataclass
+class STRUCT_USER_ACCOUNT_HANDLING:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    account_action: int   # ACCOUNT_ACTION (Creation/Deletion/Modification – validate using config)
+
+
+@dataclass
+class STRUCT_LOGGING_FACILITY_STATUS_CHANGE:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    old_logging_facility_status: int   # LOGGING_FACILITY_STATUS (validate using config)
+    new_logging_facility_status: int   # LOGGING_FACILITY_STATUS (validate using config)
+
+
+@dataclass
+class STRUCT_AGENT_STATUS_MONITORING:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    agent_id: str
+
+@dataclass
+class STRUCT_ANOMALOUS_CPU_CONSUMPTION:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    anomalous_cpu_usage_time: STRING_DATE_TIME_FORMAT
+    cpu_anomalous_usage: float
+
+
+@dataclass
+class STRUCT_ANOMALOUS_GPU_CONSUMPTION:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    anomalous_gpu_usage_time: STRING_DATE_TIME_FORMAT
+    gpu_anomalous_usage: float
+
+
+@dataclass
+class STRUCT_ANOMALOUS_RAM_CONSUMPTION:
+    msg_id: int
+    source_id: str
+    event_id: str
+    event_type: int      # INCIDENT_TYPE (validate using config)
+    event_name: int      # EVENT_NAME (validate using config)
+    event_reason: str
+    timestamp: STRING_DATE_TIME_FORMAT
+    attacker_ip_address: str
+    attacker_username: str
+    device_hostname: str
+    device_username: str
+    device_mac_id: str
+    device_ip_add: str
+    device_type: int      # DEVICE_TYPE (validate using config)
+    log_text: str
+    severity: int         # SEVERITY (validate using config)
+    pid: str
+    ppid: str
+    tty: str              # BOOL_YES_NO (validate using config)
+    cpu_time: float
+    start_time: STRING_DATE_TIME_FORMAT
+    anomalous_ram_usage_time: STRING_DATE_TIME_FORMAT
+    ram_anomalous_usage: float

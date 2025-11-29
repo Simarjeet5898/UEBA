@@ -36,7 +36,7 @@ def load_sensitive_directories_from_db():
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
-        cur.execute("SELECT sensitive_files FROM anomalous_file_access_config LIMIT 1;")
+        cur.execute("SELECT sensitive_files FROM anomalous_file_access_config_ueba LIMIT 1;")
         row = cur.fetchone()
         cur.close()
         conn.close()
@@ -53,15 +53,10 @@ def load_sensitive_directories_from_db():
     
 sensitive_dirs = load_sensitive_directories_from_db()
 
-# anomaly detection state
-# sensitive_dirs = [d for d in config.get("sensitive_dirs", []) if os.path.exists(d)]
 # 2️⃣ Fallback: config.json
 if not sensitive_dirs:
     sensitive_dirs = [d for d in config.get("sensitive_dirs", []) if os.path.exists(d)]
-    # if sensitive_dirs:
-    #     print("[INFO] Loaded sensitive dirs from config.json")
-    # else:
-    #     print("[WARNING] No sensitive directories found in DB or config.json")
+
         
 file_access_log = defaultdict(lambda: deque(maxlen=20))
 # FREQ_THRESHOLD = 10
@@ -176,7 +171,7 @@ def store_file_event(evt):
 
         # Ensure table exists with log_text added
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS file_system_monitoring (
+            CREATE TABLE IF NOT EXISTS file_system_monitoring_ueba (
                 id SERIAL PRIMARY KEY,
                 timestamp TIMESTAMPTZ,
                 username TEXT,
@@ -212,7 +207,7 @@ def store_file_event(evt):
 
         # -------- insert event --------
         cur.execute("""
-            INSERT INTO file_system_monitoring (
+            INSERT INTO file_system_monitoring_ueba (
                 timestamp, username, hostname, mac_address, directory, event_type, log_text
             ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (

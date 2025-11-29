@@ -11,7 +11,7 @@ Kafka Topic:
     - system-metrics
 
 Database Table:
-    - application_usage
+    - application_usage_ueba
 
 Schema:
     - username, process_name, pid, ppid, cmdline, terminal, status
@@ -74,7 +74,6 @@ import time
 
 
 CONFIG_PATH = "/home/config.json"
-# CONFIG_PATH = "/home/simar/Documents/UEBA_BACKEND/config/config.json"
 with open(CONFIG_PATH, "r") as f:
     config = json.load(f)
 
@@ -106,7 +105,7 @@ ANOMALY_CONFIG = config.get("application_usage_anomaly", {})
 def ensure_table(conn):
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS application_usage (
+        CREATE TABLE IF NOT EXISTS application_usage_ueba (
             id SERIAL PRIMARY KEY,
             username TEXT,
             process_name TEXT,
@@ -133,30 +132,6 @@ def ensure_table(conn):
 ############
 
 
-# def create_latency_monitoring_table(conn):
-#     cur = conn.cursor()
-#     cur.execute("""
-#         CREATE TABLE IF NOT EXISTS latency_monitoring (
-#             id SERIAL PRIMARY KEY,
-#             username TEXT,
-#             cpu_percent REAL,
-#             memory_percent REAL,
-#             startup_latency REAL,
-#             response_time REAL,
-#             io_wait_time REAL,
-#             disk_read_rate REAL,
-#             disk_write_rate REAL,
-#             load_average REAL,
-#             network_bytes_sent BIGINT,
-#             network_bytes_recv BIGINT,
-#             context_switches BIGINT,
-#             system_temperature REAL,
-#             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-#         );
-#     """)
-#     conn.commit()
-#     cur.close()
-
 def hourly_latency_aggregator(conn):
     while True:
         time.sleep(3600)
@@ -164,7 +139,7 @@ def hourly_latency_aggregator(conn):
         cur = conn.cursor()
 
         cur.execute("""
-            INSERT INTO latency_monitoring (
+            INSERT INTO latency_monitoring_ueba (
                 kernel_worst_latency_ms,
                 kernel_avg_latency_ms,
                 sched_avg_delay_ms,
@@ -190,10 +165,7 @@ def hourly_latency_aggregator(conn):
             SELECT 
                 MAX(kernel_worst_latency_ms),
                 AVG(kernel_avg_latency_ms),
-                NULL,
                 AVG(sched_avg_delay_ms),
-                MAX(sched_max_delay_ms),
-                SUM(sched_sample_count),
                 MIN(rt_min_latency_us),
                 AVG(rt_avg_latency_us),
                 MAX(rt_max_latency_us),
@@ -212,11 +184,12 @@ def hourly_latency_aggregator(conn):
                 AVG(system_temperature),
                 NOW(),
                 'hourly'
-            FROM latency_monitoring
+            FROM latency_monitoring_ueba
             WHERE aggregation_type = 'realtime'
-              AND timestamp > NOW() - INTERVAL '1 hour'
+            AND timestamp > NOW() - INTERVAL '1 hour'
             GROUP BY username;
-        """)
+            """)
+
 
         conn.commit()
         cur.close()
@@ -225,7 +198,7 @@ def hourly_latency_aggregator(conn):
 def create_latency_monitoring_table(conn):
     cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS latency_monitoring (
+        CREATE TABLE IF NOT EXISTS latency_monitoring_ueba (
             id SERIAL PRIMARY KEY,
 
             -- NEW UEBA_015 latency fields (FIRST)
@@ -278,7 +251,7 @@ def insert_usage_record(conn, record):
         if event == "launch":
             # Always insert new row on launch
             insert_sql = """
-                INSERT INTO application_usage (
+                INSERT INTO application_usage_ueba (
                     username, process_name, pid, ppid,
                     parent_name, cmdline, status,
                     cpu_percent, memory_percent,
@@ -298,7 +271,7 @@ def insert_usage_record(conn, record):
         elif event == "exit":
             # Finalize row when process exits
             update_sql = """
-                UPDATE application_usage
+                UPDATE application_usage_ueba
                 SET end_time     = %(end_time)s,
                     duration_secs = %(duration_secs)s,
                     status        = 'inactive',
@@ -311,7 +284,7 @@ def insert_usage_record(conn, record):
             # Fallback if no launch row was ever inserted
             if cur.rowcount == 0:
                 insert_sql = """
-                    INSERT INTO application_usage (
+                    INSERT INTO application_usage_ueba (
                         username, process_name, pid, ppid,
                         parent_name, cmdline, status,
                         cpu_percent, memory_percent,
@@ -335,68 +308,6 @@ def insert_usage_record(conn, record):
     finally:
         cur.close()
 
-# def detect_anomalous_application_usage(record, state_cache=None):
-#     if state_cache is None:
-#         state_cache = {}
-
-#     anomalies = []
-#     proc = record.get("process_name", "").lower()
-
-#     # 1. Sensitive applications
-#     sensitive_apps = {"nmap", "hydra", "sqlmap", "john", "airmon-ng"}
-#     if proc in sensitive_apps:
-#         anomalies.append(f"Sensitive application detected: {proc}")
-
-#     # 2. High CPU / Memory usage
-#     cpu = record.get("cpu_percent", 0) or 0
-#     mem = record.get("memory_percent", 0) or 0
-#     if cpu > 20:
-#         anomalies.append(f"High CPU usage detected ({cpu}%) by {proc}")
-#     if mem > 20:
-#         anomalies.append(f"High memory usage detected ({mem}%) by {proc}")
-
-#     # 3. Suspicious command line
-#     cmdline = record.get("cmdline", "") or ""
-#     cmdline_lower = cmdline.lower()
-#     suspicious_tokens = ["powershell", "wget", "curl", "nc ", "ncat", "base64", "sh -c"]
-#     if any(tok in cmdline_lower for tok in suspicious_tokens):
-#         anomalies.append(f"Suspicious command line for {proc}: {cmdline}")
-
-#     # 4. Unusual parent process
-#     parent = (record.get("parent_name") or "").lower()
-#     ALLOWED_PARENTS = {
-#         "bash", "zsh", "gnome-shell", "explorer.exe", "init",
-#         "systemd", "brave-browser", "firefox", "chrome", "code","oosplash",         
-#         "soffice.bin"  
-#     }
-#     if parent and parent not in ALLOWED_PARENTS:
-#         anomalies.append(f"Unusual parent process: {parent} launched {proc}")
-
-#     # 5. Unexpected network activity
-#     if record.get("network_activity") and proc not in ("firefox", "brave", "chrome", "edge"):
-#         anomalies.append(f"Unexpected network activity by {proc}")
-
-#     # 6. Odd-hour execution (before 5AM or after 7PM)
-#     try:
-#         ts = record.get("timestamp")
-#         ts = datetime.fromisoformat(ts) if isinstance(ts, str) else ts
-#         if ts and (ts.hour < 5 or ts.hour > 19):
-#             anomalies.append(f"Unusual execution time: {ts.hour}:00 for {proc}")
-#     except Exception:
-#         pass
-
-#     # 7. Frequency-based anomalies (more than 3 launches/min)
-#     now = datetime.now()
-#     history = state_cache.setdefault(proc, [])
-#     history.append(now)
-
-#     # retain only last 60 seconds
-#     state_cache[proc] = [t for t in history if (now - t).seconds < 60]
-
-#     if len(state_cache[proc]) > 3:
-#         anomalies.append(f"Frequent launches of {proc} detected ({len(state_cache[proc])}/min)")
-
-#     return anomalies or None
 
 def detect_anomalous_application_usage(record, state_cache):
     anomalies = []
@@ -476,7 +387,7 @@ def insert_latency_record(conn, record):
     cur = conn.cursor()
 
     insert_sql = """
-        INSERT INTO latency_monitoring (
+        INSERT INTO latency_monitoring_ueba (
             kernel_worst_latency_ms,
             kernel_avg_latency_ms,
             sched_avg_delay_ms,
@@ -614,22 +525,7 @@ def main(stop_event=None):
                             logging.error(f"Error during database/siem operation: {e}")
 
         # Insert latency data from the same producer message
-        # latency_record = {
-        #     "username":           metrics.get("username"),
-        #     "cpu_percent":        metrics.get("cpu_usage"),
-        #     "memory_percent":     metrics.get("memory_usage"),
-        #     "startup_latency":    metrics.get("startup_latency"),
-        #     "response_time":      metrics.get("response_time"),
-        #     "io_wait_time":       metrics.get("io_wait_time"),
-        #     "disk_read_rate":     metrics.get("disk_read_rate"),
-        #     "disk_write_rate":    metrics.get("disk_write_rate"),
-        #     "load_average":       metrics.get("avg_load"),
-        #     "network_bytes_sent": metrics.get("network_bytes_sent"),
-        #     "network_bytes_recv": metrics.get("network_bytes_recv"),
-        #     "context_switches":   metrics.get("context_switches"),
-        #     "system_temperature": metrics.get("system_temperature"),
-        #     "timestamp":          metrics.get("timestamp") if metrics.get("timestamp") else datetime.now().isoformat()
-        # }
+        
         latency_record = {
             "kernel_worst_latency_ms": metrics["kernel_latency"].get("worst_latency_ms"),
             "kernel_avg_latency_ms":   metrics["kernel_latency"].get("average_latency_ms"),
