@@ -77,7 +77,7 @@ def _ensure_table(conn) -> None:
             CREATE TABLE IF NOT EXISTS anomalies_log_ueba (
                 id SERIAL PRIMARY KEY,
                 event_id VARCHAR(255),
-                user_id VARCHAR(255),
+                username VARCHAR(255),
                 timestamp TIMESTAMP,
                 event_type VARCHAR(255),
                 event_subtype VARCHAR(255),

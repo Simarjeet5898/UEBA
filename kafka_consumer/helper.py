@@ -164,11 +164,44 @@ def _to_dt(ts):
 
 
 
-def dt_to_struct(dt: datetime) -> STRING_DATE_TIME_FORMAT:
-    return STRING_DATE_TIME_FORMAT(
-        dd=dt.day, mm=dt.month, yyyy=dt.year,
-        hh=dt.hour, min=dt.minute, ss=dt.second
-    )
+# def dt_to_struct(dt: datetime) -> STRING_DATE_TIME_FORMAT:
+#     return STRING_DATE_TIME_FORMAT(
+#         dd=dt.day, mm=dt.month, yyyy=dt.year,
+#         hh=dt.hour, min=dt.minute, ss=dt.second
+#     )
+
+from datetime import datetime
+
+def dt_to_struct(ts) -> str:
+    try:
+        # If struct-like dict → build datetime
+        if isinstance(ts, dict):
+            dt = datetime(
+                int(ts.get("yyyy", 1970)),
+                int(ts.get("mm", 1)),
+                int(ts.get("dd", 1)),
+                int(ts.get("hh", 0)),
+                int(ts.get("min", 0)),
+                int(ts.get("ss", 0)),
+            )
+            return dt.isoformat()
+
+        # If already string → normalize & return
+        if isinstance(ts, str):
+            dt = datetime.fromisoformat(ts.replace("Z", "").replace("z", ""))
+            return dt.isoformat()
+
+        # If datetime → convert to ISO
+        if isinstance(ts, datetime):
+            return ts.isoformat()
+
+    except Exception:
+        pass
+
+    # Fallback
+    return datetime.now().isoformat()
+
+
 
 def map_common_fields(raw_anomaly):
 
@@ -1075,6 +1108,7 @@ def build_logging_facility_status_change_packet(raw_anomaly):
 
     return packet
 
+
 def build_user_account_handling_packet(raw_anomaly):
     """
     Build SIEM-ready packet for User Account Handling anomaly.
@@ -1116,7 +1150,6 @@ def build_user_account_handling_packet(raw_anomaly):
         start_time=dt_to_struct(base.get("start_time")),
         account_action=base.get("account_action")
     )
-
     return packet
 
 def build_successful_login_after_login_failure_packet(raw_anomaly):
@@ -1236,7 +1269,7 @@ def store_anomaly_to_database_and_siem(alert_json):
             CREATE TABLE IF NOT EXISTS anomalies_log_ueba (
                 id SERIAL PRIMARY KEY,
                 event_id VARCHAR(255),
-                user_id VARCHAR(255),
+                username VARCHAR(255),
                 timestamp TIMESTAMP,
                 event_type VARCHAR(255),
                 event_subtype VARCHAR(255),
@@ -1256,7 +1289,7 @@ def store_anomaly_to_database_and_siem(alert_json):
         # 4) Insert query
         insert_query = """
         INSERT INTO anomalies_log_ueba (
-            event_id, user_id, timestamp, event_type, event_subtype, severity,
+            event_id, username, timestamp, event_type, event_subtype, severity,
             attacker_info, component, resource, event_reason,
             device_ip, device_mac, log_text, risk_score
         ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -1366,8 +1399,8 @@ def store_anomaly_to_database_and_siem(alert_json):
                     }
                 }
 
-                print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
-                send_json_packet(siem_msg)
+                # print(">>> Sending SIEM payload:\n", json.dumps(siem_msg, indent=2), flush=True)
+                # send_json_packet(siem_msg)
 
             except Exception as e:
                 print(f"Error inserting record: {e}")

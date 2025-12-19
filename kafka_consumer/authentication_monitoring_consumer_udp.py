@@ -70,6 +70,7 @@ def init_db():
                 username TEXT,
                 source_ip TEXT,
                 source_hostname TEXT,
+                mac_address TEXT,
                 method TEXT,
                 reason TEXT,
                 creator TEXT,
@@ -96,6 +97,7 @@ def insert_authentication_event(event):
                 username TEXT,
                 source_ip TEXT,
                 source_hostname TEXT,
+                mac_address TEXT,
                 method TEXT,
                 reason TEXT,
                 creator TEXT,
@@ -105,8 +107,8 @@ def insert_authentication_event(event):
         cur.execute(
             """
             INSERT INTO authentication_log_ueba
-            (timestamp, event_type, username, source_ip, source_hostname, method, reason, creator, extra_data)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (timestamp, event_type, username, source_ip, source_hostname, mac_address, method, reason, creator, extra_data)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 event.get("timestamp"),
@@ -114,6 +116,7 @@ def insert_authentication_event(event):
                 event.get("username"),
                 event.get("source_ip"),
                 event.get("source_hostname"),
+                event.get("mac_address"),
                 event.get("method"),
                 event.get("reason"),
                 event.get("creator"),
@@ -275,6 +278,7 @@ def send_user_account_event_to_siem(event_type: str, username: str, metrics: dic
         "source_hostname": hostname,
         "method": "USER_ACCOUNT_EVENT",
         "event_reason": reason,
+        "account_action":event_type,
         # "reason": reason,
         "creator": metrics.get("creator", "System"),
         # "extra_data": {}
@@ -563,6 +567,7 @@ def main(stop_event=None):
                         "username": u,
                         "source_ip": str(source_ip),
                         "source_hostname": hostname,
+                        "mac_address": metrics.get("mac_address"),
                         "method": "adduser",
                         "reason": f"User account '{u}' created",
                         "creator": metrics.get("creator", "System"),
@@ -608,6 +613,7 @@ def main(stop_event=None):
                         "username": u,
                         "source_ip": source_ip,
                         "source_hostname": hostname,   # ✅ now always a string
+                        "mac_address": metrics.get("mac_address"),
                         "method": "usermod",
                         "reason": f"User account '{u}' modified",
                         "creator": metrics.get("creator", "System"),
@@ -653,7 +659,8 @@ def main(stop_event=None):
                         "event_type": "AUTHENTICATION_EVENTS",
                         "username": u,
                         "source_ip": source_ip,
-                        "source_hostname": hostname,  
+                        "source_hostname": hostname,
+                        "mac_address": metrics.get("mac_address"),  
                         "method": "userdel",
                         "reason": f"User account '{u}' deleted",
                         "creator": metrics.get("creator", "System"),
@@ -718,6 +725,7 @@ def main(stop_event=None):
                         "username": username,
                         "source_ip": s.get("source_ip", "Unknown"),
                         "source_hostname": s.get("source_hostname") or metrics.get("hostname", "Unknown"),
+                        "mac_address": metrics.get("mac_address"), 
                         "method": method,
                         "reason": f"Successful {method} authentication",
                         "creator": metrics.get("creator", "System"),
@@ -780,6 +788,7 @@ def main(stop_event=None):
                     "username": username,
                     "source_ip": source_ip,
                     "source_hostname": hostname,
+                    "mac_address": metrics.get("mac_address"), 
                     "method": "SSH",
                     "reason": f"{total_for_user} failed login attempt(s) for {username}",
                     "creator": metrics.get("creator", "System"),

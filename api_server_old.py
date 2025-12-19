@@ -7,7 +7,7 @@ import os
 import json
 import threading
 import time
-from fastapi import Query , HTTPException
+from fastapi import HTTPException
 import kafka_consumer.config_consumer as config_consumer
 
 
@@ -22,7 +22,6 @@ config_consumer.init_dormancy_table()
 config_consumer.init_bulk_data_operation_table()
 config_consumer.init_abnormal_login_logout_table()
 config_consumer.init_alert_suppression_table()
-
 
 app.add_middleware( 
     CORSMiddleware, 
@@ -1063,422 +1062,7 @@ def get_recent_anomalies():
 
     print("[DEBUG] /recent-anomalies ->", result)
     return result
-#----------------- GET LATENCY MATRIX --------------------------
 
-@app.get("/api/soc/ueba/latencyMatrix" , tags=["Get Latency Matrix"])
-def get_latency_matrix():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT l.id , l.timestamp ,c.ip_address AS "ipAddress",  l.username , l.kernel_avg_latency_ms AS "kernelLatency" ,l.sched_avg_delay_ms AS "schedularLatency" , l.username ,l.startup_latency AS "startupLatency" ,l.response_time AS "responseTime" ,l.io_wait_time AS "ioWaitTime" , l.context_switches AS "contextSwitches" ,l.system_temperature AS "systemTemperature" FROM latency_monitoring_ueba l JOIN client_status_ueba c ON l.hostname = c.hostname  ORDER BY id;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-#----------------- GET SIEM EVENTS -----------------------------
-@app.get("/api/soc/ueba/siemEvents" , tags=["Get Siem Events"])
-def get_all_siem_events():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT source_id AS "sourceId" ,event_id AS "eventId" ,event_type AS "eventType" , event_name AS "eventName" ,event_reason AS "eventReason" , timestamp ,attacker_ip_address AS "attackerIpAddress" ,attacker_username AS "attackerUsername" ,device_hostname AS "deviceHostname" , device_username AS "deviceUsername",device_mac_id AS "deviceMacId" ,device_ip_add AS "deviceIpAddress" , device_type AS "deviceType" ,log_text AS "logText" , severity , pid , ppid , tty,cpu_time AS "cpuTime" , start_time AS "sTime" FROM siem_anomalies_log ORDER BY id;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-#----------------- GET RESOURCE USAGE -----------------------------
-
-@app.get("/api/soc/ueba/resourceUsage", tags=["Get Resource Usage"])
-def get_resource_usage(id: int | None = Query(default=None)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if id is None:
-        # 🔹 Fetch ALL resource usage data
-        cursor.execute("""
-            SELECT id , timestamp ,ip_addresses AS "ipAddress", username , mac_address AS "macAddress" , cpu_usage AS "cpuPercent" , gpu_usage AS "gpuPercent", memory_usage AS "memoryPercent" , disk_read_rate AS "diskReadRate" ,disk_write_rate AS "diskWriteRate" ,network_bytes_sent AS "networkBytesSent" ,network_bytes_recv AS "networkBytesRecv"
-            FROM resource_usage_ueba
-            ORDER BY id;
-        """)
-        rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return [dict(zip(columns, row)) for row in rows]
-
-    else:
-        # 🔹 Fetch resource usage data for specific ID
-        cursor.execute("""
-            SELECT id , timestamp ,ip_addresses AS "ipAddress", username , mac_address AS "macAddress" , cpu_usage AS "cpuPercent" , gpu_usage AS "gpuPercent", memory_usage AS "memoryPercent" , disk_read_rate AS "diskReadRate" ,disk_write_rate AS "diskWriteRate" ,network_bytes_sent AS "networkBytesSent" ,network_bytes_recv AS "networkBytesRecv"
-            FROM resource_usage_ueba
-            WHERE id = %s;
-        """, (id,))
-        row = cursor.fetchone()
-
-        if not row:
-            cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="Resource usage not found")
-
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return dict(zip(columns, row))
-
-#----------------- GET AGENT COUNT -----------------------------
-@app.get("/api/soc/ueba/agentCount" , tags=["Get Agent Count"])
-def get_agent_count():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT
-    COUNT(*) FILTER (WHERE status = 'active')   AS "totalActiveAgents",
-    COUNT(*) FILTER (WHERE status = 'inactive') AS "totalInactiveAgents"
-FROM client_status_ueba;
-""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-#----------------- GET AGENT STATUS -----------------------------
-@app.get("/api/soc/ueba/agentStatus" , tags=["Get Agent Status"])
-def get_agent_status():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT last_seen AS "timestamp" , ip_address AS "ipAddress" , hostname , mac_addr AS "macAddress" ,client_id AS "agentId" , status FROM client_status_ueba ORDER BY id;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-
-#----------------- GET AUTHENTICATION LOG -----------------------
-@app.get("/api/soc/ueba/authenticationLog" , tags=["Get Authentication Log"])
-def get_authentication_log():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT id , mac_address AS "macAddress" , timestamp ,source_ip AS "ipAddress" , username ,reason AS "loginStatus" , source_hostname AS hostname FROM authentication_log_ueba ORDER BY id;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-
-#----------------- GET CONNECTED ENTITIES -----------------------
-
-@app.get("/api/soc/ueba/connectedEntities" , tags=["Get Connected Entities"])
-def get_all_connected_entities():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT id , timestamp , username, hostname ,mac_address AS "macAddress", serial_number AS "serialNumber", product_name AS "productName", device_type AS "deviceType" ,connection_status AS "connectionStatus" ,session_duration_sec AS "sessionDuration", '127.0.0.1' AS "ipAddress" FROM connected_entities_ueba ORDER BY id;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-
-#----------------- GET APPLICATION USAGE ------------------------
-
-@app.get("/api/soc/ueba/applicationUsage", tags=["Get Application Usage"])
-def get_application_usage(id: int | None = Query(default=None)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if id is None:
-        # 🔹 Fetch ALL application usage data
-        cursor.execute("""
-            SELECT id , timestamp ,ip_address AS "ipAddress" , username ,mac_address AS "macAddress" ,process_name AS "applicationName" , end_time AS "logoutTime" , cpu_percent AS "cpuPercent" ,memory_percent AS "memoryPercent"
-            FROM application_usage_ueba
-            ORDER BY id;
-        """)
-        rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return [dict(zip(columns, row)) for row in rows]
-
-    else:
-        # 🔹 Fetch application usage data by ID
-        cursor.execute("""
-            SELECT id , timestamp ,ip_address AS "ipAddress" , username ,mac_address AS "macAddress" ,process_name AS "applicationName" , end_time AS "logoutTime" , cpu_percent AS "cpuPercent" ,memory_percent AS "memoryPercent"
-            FROM application_usage_ueba
-            WHERE id = %s;
-        """, (id,))
-        row = cursor.fetchone()
-
-        if not row:
-            cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="Application usage not found")
-
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return dict(zip(columns, row))
-#----------------- GET TOP 10 Commands ------------------------
-# @app.get("/api/soc/ueba/command-usage", tags=["Command Usage"])
-# def get_command_usage(
-#     username: str | None = Query(None),
-#     days: int = Query(1, ge=1, le=7)
-# ):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-
-#     sql = """
-#         SELECT
-#             DATE(ec.time) AS date,
-#             ec.username,
-#             COUNT(*) AS commandCount
-#         FROM executed_commands_ueba ec
-#         WHERE ec.time >= CURRENT_DATE - INTERVAL %s
-#     """
-
-#     params = [f"{days} days"]
-
-#     if username:
-#         sql += " AND ec.username = %s"
-#         params.append(username)
-
-#     sql += """
-#         GROUP BY DATE(ec.time), ec.username
-#         ORDER BY date DESC, commandCount DESC
-#     """
-
-#     cur.execute(sql, params)
-#     rows = cur.fetchall()
-
-#     cur.close()
-#     conn.close()
-
-#     return {
-#         "status": 1,
-#         "days": days,
-#         "data": [
-#             {
-#                 "date": r[0],
-#                 "username": r[1],
-#                 "commandCount": r[2]
-#             }
-#             for r in rows
-#         ]
-#     }
-
-#----------------- GET ANOMALIES LOG ----------------------------
-
-@app.get("/api/soc/ueba/anomaliesLog" , tags=["Anomalies Log"])
-def get_all_anomalies_log():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT * FROM anomalies_log_ueba ORDER BY id ;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-#----------------- GET USER SESSION -----------------------------
-
-@app.get("/api/soc/ueba/userSession", tags=["Get User Session"])
-def get_user_session(id: int | None = Query(default=None)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if id is None:
-        # 🔹 Fetch ALL sessions
-        cursor.execute("""
-            SELECT id , timestamp , lan_ip AS "ipAddress" , hostname ,active_mac AS "macAddress" , username , login_time AS "loginTime" , logout_time AS "logoutTime" ,session_duration_seconds AS "sessionDuration" ,geo_country AS "geoCountry" , geo_city AS "geoCity" 
-            FROM user_session_tracking_ueba 
-            ORDER BY id;
-        """)
-        rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return [dict(zip(columns, row)) for row in rows]
-
-    else:
-        # 🔹 Fetch ONE session by ID
-        cursor.execute("""
-            SELECT id , timestamp , lan_ip AS "ipAddress" , hostname ,active_mac AS "macAddress" , username , login_time AS "loginTime" , logout_time AS "logoutTime" ,session_duration_seconds AS "sessionDuration" ,geo_country AS "geoCountry" , geo_city AS "geoCity"
-            FROM user_session_tracking_ueba 
-            WHERE id = %s;
-        """, (id,))
-        row = cursor.fetchone()
-
-        if not row:
-            cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return dict(zip(columns, row))
-
-#----------------- GET USER AND ENTITY DATA ---------------------
-
-@app.get("/api/soc/ueba/userEntityData", tags=["Get User and Entity Data"])
-def get_user_entity_data(id: int | None = Query(default=None)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    if id is None:
-        # 🔹 Fetch ALL user & entity data
-        cursor.execute("""
-            SELECT id,timestamp,lan_ip AS "ipAddress",hostname,active_mac AS "macAddress",username, '48' AS "riskScore"
-            FROM user_session_tracking_ueba
-            ORDER BY id;
-        """)
-        rows = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return [dict(zip(columns, row)) for row in rows]
-
-    else:
-        # 🔹 Fetch user & entity data by ID
-        cursor.execute("""
-            SELECT id,timestamp,lan_ip AS "ipAddress",hostname,active_mac AS "macAddress",username, '48' AS "riskScore"
-            FROM user_session_tracking_ueba
-            WHERE id = %s;
-        """, (id,))
-        row = cursor.fetchone()
-
-        if not row:
-            cursor.close()
-            conn.close()
-            raise HTTPException(status_code=404, detail="Record not found")
-
-        columns = [desc[0] for desc in cursor.description]
-
-        cursor.close()
-        conn.close()
-
-        return dict(zip(columns, row))
-
-#------------------- File System Monitoring ---------------------
-@app.get("/api/soc/ueba/fileSystemMonitoring" , tags=["File System Monitoring"])
-def get_filesystem_monitoring():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""SELECT id , directory AS "directoryPath" FROM file_system_monitoring_ueba ORDER BY id ;""")
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
-    result = [dict(zip(columns, row)) for row in rows]
-    cursor.close()
-    conn.close()
-    return result
-
-@app.delete("/api/soc/ueba/fileSystemMonitoring/{record_id}", tags=["File System Monitoring"])
-def delete_user_and_entitydata(record_id: int):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Check if the record exists
-    cursor.execute("SELECT id FROM file_system_monitoring_ueba WHERE id = %s;", (record_id,))
-    row = cursor.fetchone()
-
-    if not row:
-        cursor.close()
-        conn.close()
-        return {"status": "error", "message": f"Record with id {record_id} not found"}
-
-    # Delete the record
-    cursor.execute("DELETE FROM file_system_monitoring_ueba WHERE id = %s;", (record_id,))
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-    return {"status": "success", "message": f"Record with id {record_id} deleted successfully"}
-
-@app.post("/api/soc/ueba/fileSystemMonitoring", tags=["File System Monitoring"])
-def api_create_directory(payload: dict):
-    # Validate request body
-    directory = payload.get("directory")
-    if not directory or not isinstance(directory, str):
-        return {"reason": "incorrect value"}, 400
-
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        # Insert only directory
-        insert_query = """
-            INSERT INTO file_system_monitoring_ueba (directory)
-            VALUES (%s) RETURNING id;
-        """
-
-        cursor.execute(insert_query, (directory,))
-        new_id = cursor.fetchone()[0]
-        conn.commit()
-
-        cursor.close()
-        conn.close()
-
-        # Success Response
-        return {
-            "status": 1,
-            "id": new_id,
-            "directoryPath": directory
-        }, 200
-
-    except Exception as e:
-        # Internal Server Error
-        print("Error:", e)
-        return {"reason": "internal_server_error"}, 500
-
-
-
-
-@app.put("/api/soc/ueba/fileSystemMonitoring/{record_id}", tags=["File System Monitoring"])
-def api_update_file_system_monitoring_directory(record_id: int, payload: dict):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Check if record exists
-    cursor.execute("SELECT id FROM file_system_monitoring_ueba WHERE id = %s;", (record_id,))
-    existing = cursor.fetchone()
-
-    if not existing:
-        cursor.close()
-        conn.close()
-        return {"message": f"Record with id {record_id} not found"}
-
-    # Only update the directory
-    update_query = """
-        UPDATE file_system_monitoring_ueba
-        SET directory = %s
-        WHERE id = %s;
-    """
-
-    cursor.execute(update_query, (payload.get("directory"), record_id))
-    conn.commit()
-
-    cursor.close()
-    conn.close()
-
-    return {"message": "Directory updated successfully", "id": record_id}
 
 
 
@@ -1532,8 +1116,7 @@ def api_delete_data_exfiltration_config(config_id: int):
 
 # ---------------- PRIVILEGED USER CONFIG APIs ----------------
 
-# @app.get("/config/privileged-users", tags=["Privileged User Config"])
-@app.get("/api/soc/ueba/privilegeUser", tags=["Privileged User Config"])
+@app.get("/config/privileged-users", tags=["Privileged User Config"])
 def api_get_all_privileged_user_configs():
     return config_consumer.get_all_privileged_user_configs()
 
@@ -1575,13 +1158,12 @@ def api_delete_privileged_user_config(config_id: int):
 
 # ---------------- ANOMALOUS FILE ACCESS CONFIG APIs ----------------
 
-# @app.get("/config/anomalous-file-access", tags=["Anomalous File Access Config"])
-@app.get("/api/soc/ueba/anomalousFileConfiguration" , tags=["Anomalous File access Config"])
+@app.get("/config/anomalous-file-access", tags=["Anomalous File Access Config"])
 def api_get_all_anomalous_file_access_configs():
     return config_consumer.get_all_anomalous_file_access_configs()
 
 
-@app.get("/api/soc/ueba/anomalousFileConfiguration/{config_id}", tags=["Anomalous File Access Config"])
+@app.get("/config/anomalous-file-access/{config_id}", tags=["Anomalous File Access Config"])
 def api_get_anomalous_file_access_config(config_id: int):
     result = config_consumer.get_anomalous_file_access_config(config_id)
     if not result:
@@ -1589,7 +1171,7 @@ def api_get_anomalous_file_access_config(config_id: int):
     return result
 
 
-@app.post("/api/soc/ueba/anomalousFileConfiguration", tags=["Anomalous File Access Config"])
+@app.post("/config/anomalous-file-access", tags=["Anomalous File Access Config"])
 def api_add_anomalous_file_access_config(payload: dict):
     config_id = config_consumer.add_anomalous_file_access_config(
         payload.get("sensitive_files", []),
@@ -1598,7 +1180,7 @@ def api_add_anomalous_file_access_config(payload: dict):
     return {"message": "Config added successfully", "id": config_id}
 
 
-@app.put("/api/soc/ueba/anomalousFileConfiguration/{config_id}", tags=["Anomalous File Access Config"])
+@app.put("/config/anomalous-file-access/{config_id}", tags=["Anomalous File Access Config"])
 def api_update_anomalous_file_access_config(config_id: int, payload: dict):
     updated = config_consumer.update_anomalous_file_access_config(
         config_id,
@@ -1610,7 +1192,7 @@ def api_update_anomalous_file_access_config(config_id: int, payload: dict):
     return {"message": "Config updated successfully"}
 
 
-@app.delete("/api/soc/ueba/anomalousFileConfiguration/{config_id}", tags=["Anomalous File Access Config"])
+@app.delete("/config/anomalous-file-access/{config_id}", tags=["Anomalous File Access Config"])
 def api_delete_anomalous_file_access_config(config_id: int):
     deleted = config_consumer.delete_anomalous_file_access_config(config_id)
     if not deleted:
@@ -1620,14 +1202,12 @@ def api_delete_anomalous_file_access_config(config_id: int):
 
 # ---------------- DORMANCY CONFIG APIs ----------------
 
-# @app.get("/config/dormancy", tags=["Dormancy Config"])
-@app.get("api/soc/ueba/dormancy", tags=["Dormancy Config"])
+@app.get("/config/dormancy", tags=["Dormancy Config"])
 def api_get_all_dormancy_configs():
     return config_consumer.get_all_dormancy_configs()
 
 
-# @app.get("/config/dormancy/{config_id}", tags=["Dormancy Config"])
-@app.get("/api/soc/ueba/dormancy/{config_id}", tags=["Dormancy Config"])
+@app.get("/config/dormancy/{config_id}", tags=["Dormancy Config"])
 def api_get_dormancy_config(config_id: int):
     result = config_consumer.get_dormancy_config(config_id)
     if not result:
@@ -1635,8 +1215,7 @@ def api_get_dormancy_config(config_id: int):
     return result
 
 
-# @app.post("/config/dormancy", tags=["Dormancy Config"])
-@app.post("/api/soc/ueba/dormancy", tags=["Dormancy Config"])
+@app.post("/config/dormancy", tags=["Dormancy Config"])
 def api_add_dormancy_config(payload: dict):
     config_id = config_consumer.add_dormancy_config(
         payload.get("dormancy_value", 0)
@@ -1644,8 +1223,7 @@ def api_add_dormancy_config(payload: dict):
     return {"message": "Config added successfully", "id": config_id}
 
 
-# @app.put("/config/dormancy/{config_id}", tags=["Dormancy Config"])
-@app.put("/api/soc/ueba/dormancy/{config_id}", tags=["Dormancy Config"])
+@app.put("/config/dormancy/{config_id}", tags=["Dormancy Config"])
 def api_update_dormancy_config(config_id: int, payload: dict):
     updated = config_consumer.update_dormancy_config(
         config_id,
@@ -1656,8 +1234,7 @@ def api_update_dormancy_config(config_id: int, payload: dict):
     return {"message": "Config updated successfully"}
 
 
-# @app.delete("/config/dormancy/{config_id}", tags=["Dormancy Config"])
-@app.delete("/api/soc/ueba/dormancy/{config_id}", tags=["Dormancy Config"])
+@app.delete("/config/dormancy/{config_id}", tags=["Dormancy Config"])
 def api_delete_dormancy_config(config_id: int):
     deleted = config_consumer.delete_dormancy_config(config_id)
     if not deleted:
@@ -1666,10 +1243,8 @@ def api_delete_dormancy_config(config_id: int):
 
 # ---------------- BULK DATA OPERATION CONFIG APIs ----------------
 
-# @app.get("/config/bulk-data-operation", tags=["Bulk Data Operation Config"])
-@app.get("/api/soc/ueba/bulkDataOperation" , tags=["Bulk Data Operation Config"])
+@app.get("/config/bulk-data-operation", tags=["Bulk Data Operation Config"])
 def api_get_all_bulk_data_operation_configs():
-    
     return config_consumer.get_all_bulk_data_operation_configs()
 
 
@@ -1689,8 +1264,7 @@ def api_add_bulk_data_operation_config(payload: dict):
     return {"message": "Config added successfully", "id": config_id}
 
 
-# @app.put("/config/bulk-data-operation/{config_id}", tags=["Bulk Data Operation Config"])
-@app.put("/api/soc/ueba/bulkDataOperation/{config_id}", tags=["Bulk Data Operation Config"])
+@app.put("/config/bulk-data-operation/{config_id}", tags=["Bulk Data Operation Config"])
 def api_update_bulk_data_operation_config(config_id: int, payload: dict):
     updated = config_consumer.update_bulk_data_operation_config(
         config_id,
@@ -1701,8 +1275,7 @@ def api_update_bulk_data_operation_config(config_id: int, payload: dict):
     return {"message": "Config updated successfully"}
 
 
-# @app.delete("/config/bulk-data-operation/{config_id}", tags=["Bulk Data Operation Config"])
-@app.delete("//api/soc/ueba/bulkDataOperation/{config_id}", tags=["Bulk Data Operation Config"])
+@app.delete("/config/bulk-data-operation/{config_id}", tags=["Bulk Data Operation Config"])
 def api_delete_bulk_data_operation_config(config_id: int):
     deleted = config_consumer.delete_bulk_data_operation_config(config_id)
     if not deleted:
@@ -1712,8 +1285,7 @@ def api_delete_bulk_data_operation_config(config_id: int):
 
 # ---------------- ABNORMAL LOGIN LOGOUT CONFIG APIs ----------------
 
-# @app.get("/config/abnormal-login-logout", tags=["Abnormal Login Logout Config"])
-@app.get("/api/soc/ueba/abnormalLoginLogout", tags=["Abnormal Login Logout Config"])
+@app.get("/config/abnormal-login-logout", tags=["Abnormal Login Logout Config"])
 def api_get_all_abnormal_login_logout_configs():
     return config_consumer.get_all_abnormal_login_logout_configs()
 
@@ -1735,8 +1307,7 @@ def api_add_abnormal_login_logout_config(payload: dict):
     return {"message": "Config added successfully", "id": config_id}
 
 
-# @app.put("/config/abnormal-login-logout/{config_id}", tags=["Abnormal Login Logout Config"])
-@app.put("/api/soc/ueba/abnormalLoginLogout/{config_id}", tags=["Abnormal Login Logout Config"])
+@app.put("/config/abnormal-login-logout/{config_id}", tags=["Abnormal Login Logout Config"])
 def api_update_abnormal_login_logout_config(config_id: int, payload: dict):
     updated = config_consumer.update_abnormal_login_logout_config(
         config_id,
@@ -1748,8 +1319,7 @@ def api_update_abnormal_login_logout_config(config_id: int, payload: dict):
     return {"message": "Config updated successfully"}
 
 
-# @app.delete("/config/abnormal-login-logout/{config_id}", tags=["Abnormal Login Logout Config"])
-@app.delete("//api/soc/ueba/abnormalLoginLogout/{config_id}", tags=["Abnormal Login Logout Config"])
+@app.delete("/config/abnormal-login-logout/{config_id}", tags=["Abnormal Login Logout Config"])
 def api_delete_abnormal_login_logout_config(config_id: int):
     deleted = config_consumer.delete_abnormal_login_logout_config(config_id)
     if not deleted:
@@ -1759,13 +1329,12 @@ def api_delete_abnormal_login_logout_config(config_id: int):
 
 # ---------------- ALERT SUPPRESSION CONFIG APIs ----------------
 
-# @app.get("/config/alert-suppression", tags=["Alert Suppression Config"])
-@app.get("/api/soc/ueba/alertSuppression", tags=["Alert Suppression"])
+@app.get("/config/alert-suppression", tags=["Alert Suppression Config"])
 def api_get_all_alert_suppression_configs():
     return config_consumer.get_all_alert_suppression_configs()
 
 
-@app.get("api/soc/ueba/alertSuppression/{config_id}", tags=["Alert Suppression Config"])
+@app.get("/config/alert-suppression/{config_id}", tags=["Alert Suppression Config"])
 def api_get_alert_suppression_config(config_id: int):
     result = config_consumer.get_alert_suppression_config(config_id)
     if not result:
@@ -1787,8 +1356,7 @@ def api_add_alert_suppression_config(payload: dict):
     return {"message": "Config added successfully", "id": config_id}
 
 
-# @app.put("/config/alert-suppression/{config_id}", tags=["Alert Suppression Config"])
-@app.put("/api/soc/ueba/alertSuppression/{config_id}", tags=["Alert Suppression Config"])
+@app.put("/config/alert-suppression/{config_id}", tags=["Alert Suppression Config"])
 def api_update_alert_suppression_config(config_id: int, payload: dict):
     updated = config_consumer.update_alert_suppression_config(
         config_id,
@@ -1805,8 +1373,7 @@ def api_update_alert_suppression_config(config_id: int, payload: dict):
     return {"message": "Config updated successfully"}
 
 
-# @app.delete("/config/alert-suppression/{config_id}", tags=["Alert Suppression Config"])
-@app.delete("/api/soc/ueba/alertSuppression/{config_id}", tags=["Alert Suppression Config"])
+@app.delete("/config/alert-suppression/{config_id}", tags=["Alert Suppression Config"])
 def api_delete_alert_suppression_config(config_id: int):
     deleted = config_consumer.delete_alert_suppression_config(config_id)
     if not deleted:
@@ -1837,6 +1404,9 @@ def get_clients_status_list():
     cursor.close()
     conn.close()
     return result
+
+#############################################################3
+
 
 
 

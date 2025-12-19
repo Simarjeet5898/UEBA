@@ -7,6 +7,7 @@ import os
 import sys 
 from datetime import datetime
 import threading
+import platform
 import subprocess
 from inotify_simple import INotify, flags
 
@@ -17,9 +18,50 @@ with open(CONFIG_PATH, "r") as f:
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
 
+PING_LISTEN_PORT = config["agent_management"]["ping_listen_port"]
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        return s.getsockname()[0]
+    except:
+        return "127.0.0.1"
+    finally:
+        s.close()
+
+LOCAL_IP = get_local_ip()
+system = platform.system()
+
+def send_client_registration():
+    """
+    Send a one-time registration message to the server so the agent is immediately marked ACTIVE.
+    """
+    try:
+        msg = {
+            "type": "CLIENT_REGISTER",
+            "client_id": CLIENT_ID,
+            "hostname": hostname,
+            "mac_addr": mac_address,
+            "ip": LOCAL_IP,
+	        "os_type": system,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "status": "active"
+        }
+        print(msg)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(json.dumps(msg).encode(), (UDP_IP, UDP_PORT))
+
+        print(f"[REGISTER] Sent client registration for {CLIENT_ID} from IP {LOCAL_IP}")
+
+    except Exception as e:
+        print(f"[REGISTER ERROR] {e}")
+
+
 # === Use hostname + MAC as client_id ===
 hostname = socket.gethostname()
 mac_addr = hex(uuid.getnode())[2:]
+mac_address = ":".join(mac_addr[i:i+2] for i in range(0, 12, 2))
 CLIENT_ID = f"{hostname}_{mac_addr}"
 
 # --- Heartbeat loop ---
@@ -223,7 +265,7 @@ def monitor_all_config_changes(stop_event=None):
             print(f"[UEBA DEBUG] Cannot watch {root}: {e}")
             continue
 
-    print("[UEBA Client][DEBUG] Config-only clean monitor initialized (kernel inotify).")
+    # print("[UEBA Client][DEBUG] Config-only clean monitor initialized (kernel inotify).")
 
     last_event = {}
     debounce = 0.5  # seconds
@@ -256,7 +298,7 @@ def monitor_all_config_changes(stop_event=None):
 
                 try:
                     send_system_event(f"config_change_{short_path}")
-                    print(f"[UEBA Client][DEBUG] Config change: {flag.name} → {full_path}")
+                    # print(f"[UEBA Client][DEBUG] Config change: {flag.name} → {full_path}")
                 except Exception as ex:
                     print(f"[UEBA Client][ERROR] Config change send failed: {ex}")
 
@@ -288,7 +330,7 @@ def monitor_subsystems(stop_event=None, interval=10):
     """Monitor all Linux services for start/stop/restart state changes."""
     last_state = {}
 
-    print("[UEBA Client][DEBUG] Subsystem monitor initialized for ALL services")
+    # print("[UEBA Client][DEBUG] Subsystem monitor initialized for ALL services")
 
     while not (stop_event and stop_event.is_set()):
         try:
@@ -474,7 +516,7 @@ def system_logging_facility(stop_event=None,
     Comprehensive: detects start, stop, alter, print, dump, delete, rename, overflow
     for any present logging facilities/paths. Emits send_system_event("logging_<component>_<action>").
     """
-    print("[UEBA Client][DEBUG] Logging facility monitor initialized.")
+    # print("[UEBA Client][DEBUG] Logging facility monitor initialized.")
 
     # dynamic discovery (only track existing)
     cfg_files = _exists(_LOG_CONFIG_FILES)
@@ -541,7 +583,7 @@ def system_logging_facility(stop_event=None,
                 if last_state[name] != active:
                     action = "start" if active else "stop"
                     send_system_event(f"logging_{name}_{action}")
-                    print(f"[UEBA Client][DEBUG] Logging service change detected → {name} {action}")
+                    # print(f"[UEBA Client][DEBUG] Logging service change detected → {name} {action}")
                     last_state[name] = active
             time.sleep(service_scan_interval)
 
@@ -603,8 +645,8 @@ def system_logging_facility(stop_event=None,
                     low = raw.lower()
 
                     # --- DEBUG visibility ---
-                    if "journalctl" in low or "logrotate" in low:
-                        print(f"[UEBA Client][DEBUG] t_print_dump detected process → {low}")
+                    # if "journalctl" in low or "logrotate" in low:
+                        # print(f"[UEBA Client][DEBUG] t_print_dump detected process → {low}")
 
                     # --- journalctl detection ---
                     if "journalctl" in low:
@@ -656,7 +698,7 @@ def system_logging_facility(stop_event=None,
 
                     if pct >= overflow_threshold_pct:
                         if not _debounced(("overflow", mp), window=30):
-                            print(f"[UEBA Client][DEBUG] Logging overflow detected → {mp} ({pct}%)")
+                            # print(f"[UEBA Client][DEBUG] Logging overflow detected → {mp} ({pct}%)")
                             send_system_event(f"logging_overflow_{pct}pct_{mp.replace('/','_')}")
             except Exception:
                 pass
@@ -686,8 +728,8 @@ def handle_exit(signum=None, frame=None, exit_after=True):
     send_system_event("system_shutdown")
 
     stop_event.set()
-    send_shutdown()
-    time.sleep(1)
+    # send_shutdown()
+    # time.sleep(1)
     if exit_after:
         sys.exit(0)
 
@@ -702,29 +744,81 @@ except AttributeError:
     pass
 
 
+def listen_for_ping(stop_event=None):
+    """
+    Listens for server → agent ping on a dedicated port and replies with pong.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    try:
+        # Bind agent-side ping listener
+        sock.bind(("0.0.0.0", PING_LISTEN_PORT))
+        # print(f"[UEBA Client] Ping listener started on port {PING_LISTEN_PORT}")
+    except Exception as e:
+        print(f"[UEBA Client][ERROR] Failed to bind ping listener: {e}")
+        return
+
+    while not (stop_event and stop_event.is_set()):
+        try:
+            data, addr = sock.recvfrom(4096)
+            msg = json.loads(data.decode("utf-8", errors="ignore"))
+
+            if msg.get("type") == "ping":
+                # pong = {
+                #     "type": "pong",
+                #     "client_id": CLIENT_ID,
+                #     "ip": LOCAL_IP,  
+                #     "status": "active",
+                #     "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # }
+                pong = {
+                    "type": "pong",
+                    "client_id": CLIENT_ID,
+                    "hostname": hostname,
+                    "mac_addr": mac_address,
+                    "ip": LOCAL_IP,
+                    "status": "active",
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+
+
+
+                # Send to dispatcher (UDP_PORT=5000)
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                    s.sendto(json.dumps(pong).encode(), (UDP_IP, UDP_PORT))
+
+                print(f"[UEBA Client] PING received → PONG sent to server")
+
+        except Exception as e:
+            print(f"[UEBA Client][PING ERROR] {e}")
+
+    sock.close()
+
+
 def main():
     # print(f"[UEBA Client] Heartbeat producer started for {CLIENT_ID} ...")
     print("\033[1;32m  !!!!!!!!!!!Heartbeat + System Status Producer started (UDP)!!!!!!!!!!!!!!\033[0m")
 
-    # t1 = threading.Thread(target=send_heartbeat, args=(stop_event,))
-    # t2 = threading.Thread(target=monitor_subsystems, args=(stop_event,))
-    # t3 = threading.Thread(target=monitor_all_config_changes, args=(stop_event,))
+    send_client_registration()
+    t_ping = threading.Thread(target=listen_for_ping, args=(stop_event,), daemon=True)
 
-    # t1.start(); t2.start(); t3.start()
-    # t1.join(); t2.join(); t3.join()
-    t1 = threading.Thread(target=send_heartbeat, args=(stop_event,))
+    # t1 = threading.Thread(target=send_heartbeat, args=(stop_event,))
     t2 = threading.Thread(target=monitor_subsystems, args=(stop_event,))
     t3 = threading.Thread(target=monitor_all_config_changes, args=(stop_event,))
-    # NEW: logging facility monitor
-    # t4 = threading.Thread(target=system_logging_facility, args=(stop_event,))
     t4 = threading.Thread(target=system_logging_facility, kwargs={"stop_event": stop_event, "proc_scan_interval": 1})
 
-    t1.start(); t2.start(); t3.start(); t4.start()
-    t1.join(); t2.join(); t3.join(); t4.join()
+    t_ping.start()
+    # t1.start(); 
+    t2.start(); t3.start(); t4.start()
+
+    # t1.join(); 
+    t2.join(); t3.join(); t4.join()
+
 
 
 if __name__ == "__main__":
-    print(f"[UEBA Client] Initializing system status check for {CLIENT_ID} ...")
+    # print(f"[UEBA Client] Initializing system status check for {CLIENT_ID} ...")
 
     uptime = get_uptime_seconds()
 

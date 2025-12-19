@@ -253,6 +253,7 @@ def collect_metrics():
         "kernel_latency":           results["kernel_latency"],
         "scheduling_latency":       results["scheduling_latency"],
         "realtime_latency":         results["realtime_latency"],
+        "mac_address":              results["mac_address"]
 
 
     }
@@ -288,6 +289,7 @@ def main():
                 
                 important_metrics = {
                     "timestamp": data.get("timestamp"),
+                    "mac_address":data.get("mac_address"),
                     "cpu_usage": data.get("cpu_usage"),
                     "memory_usage": data.get("memory_usage"),
                     "startup_latency": data.get("startup_latency"),
@@ -318,6 +320,7 @@ def main():
                     # "kernel_latency": data.get("kernel_latency"),
                     # "scheduling_latency": data.get("scheduling_latency"),
                     # "realtime_latency": data.get("realtime_latency")
+                    "ip_address": data.get("ip_addresses")
 
                 }
                 print("Key Metrics:\n" + json.dumps(important_metrics, indent=4) + "\033[0m")

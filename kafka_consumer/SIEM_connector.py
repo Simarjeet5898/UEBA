@@ -135,7 +135,7 @@ def create_packet(kafka_output):
     per_proc_mem = metrics.get("per_process_memory", [])
     log_text = json.dumps(metrics)
 
-    USERNAME = data.get("user_id") or metrics.get("username") or "unknown"
+    USERNAME = data.get("user_id") or data.get("username") or metrics.get("username") or "unknown"
 
     # --- System metrics ---
     cpu_usage = float(metrics.get("cpu_usage", 0))

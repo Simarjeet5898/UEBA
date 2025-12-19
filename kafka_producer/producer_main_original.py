@@ -9,8 +9,8 @@ import time
 
 import subprocess
 import re
-import uuid
-import socket as _s
+
+
 
 # Add path for local imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -28,46 +28,6 @@ except Exception as e:
 UDP_IP = config["udp"]["server_ip"]
 UDP_PORT = config["udp"]["server_port"]
 
-# === Signal Handling ===
-stop_event = threading.Event()
-shutdown_requested = threading.Event()
-
-
-
-def build_client_id():
-    hostname = socket.gethostname()
-    mac_addr = hex(uuid.getnode())[2:]
-    return f"{hostname}_{mac_addr}"
-
-from kafka_producer.buffer_udp_data import init_buffering, BufferConfig
-
-BUFFER_DB_PATH = config.get("buffering", {}).get("db_path", "/var/lib/ueba/udp_buffer_spool.db")
-BUFFERING_ENABLED = bool(config.get("buffering", {}).get("enabled", False))
-ACK_PORT = int(config.get("buffering", {}).get("ack_port", 7010))
-
-buffer_transport = None
-if BUFFERING_ENABLED:
-    buffer_cfg = BufferConfig(
-        server_ip=UDP_IP,
-        server_port=int(UDP_PORT),
-        client_id=build_client_id(),
-        ack_listen_port=ACK_PORT,
-        db_path=BUFFER_DB_PATH,
-        max_buffer_age_seconds=int(config.get("buffering", {}).get("max_buffer_age_seconds", 0)),
-
-    )
-    # buffer_transport = init_buffering(buffer_cfg, stop_event)
-
-    # print(f"[UEBA Client] UDP buffering enabled. DB={BUFFER_DB_PATH}, ACK_PORT={ACK_PORT}")
-    buffer_transport = init_buffering(buffer_cfg, stop_event)
-
-    print("[UEBA Client][CHECK] patched sendto =", _s.socket.sendto)
-    print(f"[UEBA Client] UDP buffering enabled. DB={BUFFER_DB_PATH}, ACK_PORT={ACK_PORT}")
-
-else:
-    print("[UEBA Client] UDP buffering disabled (buffering.enabled=false)")
-
-# ------------------------------------------------------------
 
 # print(f"[UEBA Client] Loaded config. Sending via UDP {UDP_IP}:{UDP_PORT}")
 
@@ -82,7 +42,7 @@ from kafka_producer.privilege_user_monitoring_producer_udp import main as privil
 
 ## Added by simar
 from kafka_producer.login_events_producer_udp import handle_shutdown_signal 
-# from kafka_producer.clients_heartbeat_producer_udp import send_heartbeat # on 19th septemeber
+from kafka_producer.clients_heartbeat_producer_udp import send_heartbeat # on 19th septemeber
 from kafka_producer.clients_heartbeat_producer_udp import send_shutdown # on 25th septemeber
 
 from kafka_producer.clients_heartbeat_producer_udp import main as heartbeat_main
@@ -97,11 +57,33 @@ def run_producer(name, target):
     except Exception as e:
         print(f"[UEBA Client] {name} crashed: {e}")
 
+# === Signal Handling ===
+stop_event = threading.Event()
+shutdown_requested = threading.Event()
+
+
+
 
 def handle_exit(signum, frame):
     stop_event.set()            # stop producers
     shutdown_requested.set()    # request shutdown
 
+# def perform_shutdown():
+#     print("\n[UEBA Client] Shutting down all producers...")
+#     stop_event.set()
+
+#     try:
+#         handle_shutdown_signal(exit_after=False)
+#     except Exception as e:
+#         print(f"[UEBA Client] Failed to flush login_events logout: {e}")
+
+#     try:
+#         send_shutdown()
+#     except Exception as e:
+#         print(f"[UEBA Client] Failed to send shutdown heartbeat: {e}")
+
+#     time.sleep(1)  # let UDP packets flush
+#     os._exit(0)
 
 def perform_shutdown():
     if shutdown_requested.is_set():
@@ -197,6 +179,43 @@ def watch_logout_events():
                 return
 
 
+
+# === Main Launcher ===
+# def main():
+#     threads = []
+#     producers = {
+#         "ConnectedEntitiesProducer": connected_entities_main,
+#         "FileSystemMonitoringProducer": file_sys_main,
+#         "LoginEventsProducer": login_events_main,
+#         "SystemMonitorProducer": system_monitor_main,
+#         # "HeartbeatProducer": send_heartbeat,
+#         "HeartbeatProducer": lambda: send_heartbeat(stop_event),
+#         "PrivilegedUserMonitoringProducer": privileged_user_monitoring_main,
+#     }
+
+#     for name, func in producers.items():
+#         # t = threading.Thread(target=run_producer, args=(name, func), daemon=True)  # 27 nov
+#         t = threading.Thread(target=run_producer, args=(name, func), daemon=False)
+
+#         threads.append(t)
+#         t.start()
+
+#     print("[UEBA Client] All producers started.")
+
+#     try:
+#         # while not stop_event.is_set():
+#         #     time.sleep(1)
+#         # while not stop_event.is_set():
+#         #     time.sleep(1)
+#         #     if shutdown_requested.is_set():
+#         #         perform_shutdown()
+#         while True:
+#             time.sleep(1)
+#             if shutdown_requested.is_set():
+#                 perform_shutdown()
+
+#     except KeyboardInterrupt:
+#         handle_exit(None, None)
 
 def main():
     threads = []

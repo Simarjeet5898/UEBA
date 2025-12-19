@@ -220,6 +220,30 @@ TO stop the service:
 sudo systemctl stop ueba-client  # To stop the service cleanly
 sudo systemctl disable ueba-client # To disable it from starting on boot
 
+or:
+# 1) Stop old service (if running)
+sudo systemctl stop ueba-client
+
+# 2) Create /opt directory (if not already there)
+sudo mkdir -p /opt/ueba-client
+
+# 3) Copy new EXE to /opt and name it ueba_client
+sudo cp /home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2/ueba_client_1.2.2 /opt/ueba-client/ueba_client
+
+# 4) Make it executable
+sudo chmod 755 /opt/ueba-client/ueba_client
+
+# 5) Copy updated service file
+sudo cp /home/simar/Documents/UEBA/UEBA_Versions/UEBA_v1.2.2/ueba-client.service /etc/systemd/system/ueba-client.service
+sudo chmod 644 /etc/systemd/system/ueba-client.service
+
+# 6) Reload systemd and enable + start service
+sudo systemctl daemon-reload
+sudo systemctl enable ueba-client
+sudo systemctl start ueba-client
+
+# 7) Check status
+systemctl status ueba-client
 
 
 
@@ -290,6 +314,14 @@ sudo systemctl start ueba-server
 
 systemctl status ueba-server
 
+--------------------------
+sudo systemctl stop ueba-client.service
+sudo systemctl disable ueba-client.service
+sudo rm /etc/systemd/system/ueba-client.service
+sudo systemctl daemon-reload
+sudo systemctl reset-failed
+systemctl status ueba-client.service
+
 
 
 ---------------------
@@ -303,3 +335,44 @@ cut -d: -f1 /etc/passwd
 #cpu stress command for abnormal cpu: stress-ng --cpu 4 --cpu-load 90 --timeout 60s
 
 #stress-ng --temp-path /tmp --vm 2 --vm-bytes 80% --timeout 60s for abnormal memory
+
+
+
+#########
+When running rabbitmq on localhost
+"siem": {
+  "host": "127.0.0.1",
+  "port": 5672,
+  "username": "guest",
+  "password": "guest",
+  "virtual_host": "/",
+  "exchange": ""
+}
+otherwise whatever is given:
+    "siem": {
+      "host": "10.229.40.67",
+      "port": 5672,
+      "username": "jyoti",
+      "password": "crl123",
+      "virtual_host": "/",
+      "exchange": ""
+    },
+
+
+
+
+
+
+1. Find who is sending to your UDP port (5000)
+sudo ss -uapn | grep 5000
+
+2. List UEBA-related processes
+ps aux | grep -E 'ueba|kafka|udp|client' | grep -v grep
+
+3. Kill the sender (replace PID)
+kill <PID>
+If it doesn’t stop:
+kill -9 <PID>
+
+4. Verify traffic stopped
+sudo ss -uapn | grep 5000

@@ -3,12 +3,8 @@ import logging
 import psycopg2
 import socket
 from datetime import datetime
-import threading
-import time
 
 LOG = logging.getLogger("Heartbeat Consumer")
-
-last_pong_times = {}
 
 # === Config Load ===
 CONFIG_PATH = "/home/config.json"
@@ -29,14 +25,6 @@ DB_CONFIG = {
     'dbname': config["local_db"]["dbname"]
 }
 
-PING_INTERVAL = config["agent_management"]["ping_interval_minutes"]
-PING_TIMEOUT = config["agent_management"]["ping_timeout_seconds"]
-PING_LISTEN_PORT = config["agent_management"]["ping_listen_port"]
-
-
-ping_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-ping_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-
 
 def init_db():
     """Create all required tables at service startup."""
@@ -49,14 +37,9 @@ def init_db():
             CREATE TABLE IF NOT EXISTS client_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT UNIQUE,
-                hostname TEXT,
-                mac_addr TEXT,
-                OS_type TEXT,
                 last_seen TIMESTAMP,
-                status TEXT,
-                ip_address TEXT
+                status TEXT
             );
-
         """)
 
         # ---- Table 2: system_status_ueba ----
@@ -78,6 +61,7 @@ def init_db():
         conn.commit()
         cur.close()
         conn.close()
+        # print("[DB INIT] Tables client_status_ueba & system_status_ueba ensured.")
 
     except Exception as e:
         print(f"[DB INIT ERROR] {e}")
@@ -95,38 +79,32 @@ def store_heartbeat(event):
             CREATE TABLE IF NOT EXISTS client_status_ueba (
                 id SERIAL PRIMARY KEY,
                 client_id TEXT UNIQUE,
-                hostname TEXT,
-                mac_addr TEXT,
-		        OS_type TEXT,
                 last_seen TIMESTAMP,
-                status TEXT,
-                ip_address TEXT
+                status TEXT
             );
-
         """)
 
         client_id = event.get("client_id", "unknown")
         timestamp_str = event.get("timestamp")
         last_seen = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
         status = event.get("status", "active")   # take from producer
-        # Capture client IP from heartbeat sender
-        sender_ip = event.get("_sender_ip")
 
+        # 2. Upsert client status
         cur.execute("""
-            INSERT INTO client_status_ueba (client_id, last_seen, status, ip_address)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO client_status_ueba (client_id, last_seen, status)
+            VALUES (%s, %s, %s)
             ON CONFLICT (client_id) DO UPDATE
             SET last_seen = EXCLUDED.last_seen,
-                status = EXCLUDED.status,
-                ip_address = COALESCE(EXCLUDED.ip_address, client_status_ueba.ip_address);
-        """, (client_id, last_seen, status, sender_ip))
+                status = EXCLUDED.status;   -- respect producer status
+        """, (client_id, last_seen, status))
 
+        # 3. Mark old clients inactive (> 2 min, only if still active)
         cur.execute("""
             UPDATE client_status_ueba
             SET status = 'inactive'
-            WHERE status = 'active'
-            AND last_seen < (NOW() - (%s || ' seconds')::interval);
-        """, (PING_TIMEOUT,))
+            WHERE status='active'
+              AND last_seen < (NOW() - INTERVAL '10 seconds');
+        """)
 
         # 4. Count active clients
         cur.execute("SELECT COUNT(*) FROM client_status_ueba WHERE status='active';")
@@ -253,73 +231,21 @@ def store_system_status(event):
         cur.close()
         conn.close()
 
-        # print(f"[SystemStatus Consumer] {event_type.upper()} → {event_name} ({status}) details={details} client={client_id}")
+        print(f"[SystemStatus Consumer] {event_type.upper()} → {event_name} ({status}) details={details} client={client_id}")
 
     except Exception as e:
         LOG.error(f"System status insert/update error: {e}")
 
 
-def ping_agents_loop():
-    """
-    Periodically ping all agents and mark stale ones inactive.
-    """
-    while True:
-        try:
-            conn = psycopg2.connect(**DB_CONFIG)
-            cur = conn.cursor()
-
-            # 1. Get all known agents
-            cur.execute("SELECT client_id, ip_address FROM client_status_ueba;")
-            rows = cur.fetchall()
-
-            # 2. Send PING to each agent
-            for client_id, ip in rows:
-                if not ip:
-                    continue
-
-                ping_msg = {
-                    "type": "ping",
-                    "client_id": client_id
-                }
-
-                ping_sock.sendto(
-                    json.dumps(ping_msg).encode(),
-                    (ip, PING_LISTEN_PORT)
-                )
-
-            # 3. Mark agents INACTIVE if last_seen is older than timeout
-            cur.execute("""
-                UPDATE client_status_ueba
-                SET status = 'inactive'
-                WHERE status = 'active'
-                AND last_seen < (NOW() - (%s || ' seconds')::interval);
-            """, (PING_TIMEOUT,))
-
-            conn.commit()
-            cur.close()
-            conn.close()
-
-        except Exception as e:
-            print(f"[PING THREAD ERROR] {e}")
-
-        # Sleep based on config (minutes → seconds)
-        time.sleep(PING_INTERVAL * 60)
-
-
 def main(stop_event=None):
-    
     print("\033[1;32m  !!!!!!!!!!!Heartbeat & System Status Consumer started (UDP)!!!!!!!!!!!!!!\033[0m")
-    init_db()
-    ping_thread = threading.Thread(target=ping_agents_loop, daemon=True)
-    ping_thread.start()
 
     LOG.info("Heartbeat consumer started (UDP)")
+    init_db()
 
     try:
         while not (stop_event and stop_event.is_set()):
             data, addr = sock.recvfrom(65535)
-
-            # Parse JSON safely
             try:
                 event = json.loads(data.decode("utf-8"))
             except json.JSONDecodeError:
@@ -329,117 +255,43 @@ def main(stop_event=None):
             event_type = event.get("type", "unknown")
             event_name = event.get("event", "unknown")
 
-            # ----------------------------------------------------------------------
-            # SYSTEM / SUBSYSTEM / CONFIG / LOGGING EVENTS
-            # ----------------------------------------------------------------------
-            if event_type == "system_status":
+            # --- Handle Heartbeat messages ---
+            if event_type == "heartbeat":
+                print(f"\n[HEARTBEAT from {addr}]\n{json.dumps(event, indent=2)}")
+                store_heartbeat(event)
+
+            # --- Handle System/SubSystem/Config/Logging messages ---
+            elif event_type == "system_status":
                 if event_name.startswith("system_"):
                     etype = "SYSTEM"
                 elif event_name.startswith("subsystem_"):
                     etype = "SUBSYSTEM"
                 elif event_name.startswith("config_change_"):
                     etype = "CONFIG"
-                elif event_name.startswith("logging_"):
-                    etype = "LOGGING"
+                elif event_name.startswith("logging_"):     # <-- added
+                    etype = "LOGGING"                        # <-- added
                 else:
                     etype = "UNKNOWN"
 
+                print(f"\n[{etype} EVENT from {addr}]\n{json.dumps(event, indent=2)}")
                 store_system_status(event)
-                continue
 
-            elif event_type == "pong":
-                client_id = event.get("client_id")
-                ip = event.get("ip") or addr[0]
-                status = event.get("status", "active")
-                now = datetime.now()
-
-                # Record last pong timestamp
-                last_pong_times[client_id] = now
-
-                try:
-                    conn = psycopg2.connect(**DB_CONFIG)
-                    cur = conn.cursor()
-
-                    hostname = event.get("hostname")
-                    mac_addr = event.get("mac_addr")
-                    OS_type = event.get("os_type")
-
-                    cur.execute("""
-                        UPDATE client_status_ueba
-                        SET 
-                            status = %s,
-                            last_seen = NOW(),
-                            ip_address = COALESCE(%s, ip_address),
-                            hostname = COALESCE(%s, hostname),
-                            mac_addr = COALESCE(%s, mac_addr),
-                            OS_type = COALESCE(%s, OS_type)
-                        WHERE client_id = %s;
-                    """, (status, ip, hostname, mac_addr,OS_type, client_id))
-
-
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-
-                    print(f"[PONG RECEIVED] Agent {client_id} is reachable (IP={ip}, status={status}).")
-
-                except Exception as e:
-                    print(f"[PONG ERROR] {e}")
-
-                continue
-
-            elif event_type == "CLIENT_REGISTER":
-                client_id = event.get("client_id")
-                ip = event.get("ip") or addr[0]
-                ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                try:
-                    conn = psycopg2.connect(**DB_CONFIG)
-                    cur = conn.cursor()
-
-                    hostname = event.get("hostname")
-                    mac_addr = event.get("mac_addr")
-                    OS_type = event.get("os_type")
-
-                    cur.execute("""
-                        INSERT INTO client_status_ueba (client_id, hostname, mac_addr,OS_type, last_seen, status, ip_address)
-                        VALUES (%s, %s, %s,%s, %s, 'active', %s)
-                        ON CONFLICT (client_id) DO UPDATE
-                        SET 
-                            last_seen = EXCLUDED.last_seen,
-                            status = 'active',
-                            hostname = EXCLUDED.hostname,
-                            mac_addr = EXCLUDED.mac_addr,
-                            ip_address = EXCLUDED.ip_address,
-                            OS_type = EXCLUDED.OS_type;
-                    """, (client_id, hostname, mac_addr,OS_type, ts, ip))
-
-
-                    conn.commit()
-                    cur.close()
-                    conn.close()
-
-                    print(f"[REGISTER RECEIVED] Agent {client_id} is ACTIVE from {ip}")
-
-                except Exception as e:
-                    print(f"[REGISTER ERROR] {e}")
-
-                continue
-
+            # --- Unknown event types ---
             else:
-                continue
+                # print(f"[DEBUG] Unknown event type received: {event_type}")
+                print(f"Raw data: {data.decode('utf-8', errors='ignore')}")
 
     except KeyboardInterrupt:
         LOG.info("Heartbeat consumer stopped by user.")
+        # print("\n[Consumer] Stopped by user.")
     except Exception as e:
         LOG.error(f"Heartbeat consumer error: {e}")
         print(f"[ERROR] Consumer encountered an exception: {e}")
     finally:
         sock.close()
+        # LOG.info("UDP socket closed.")
         print("[Consumer] UDP socket closed.")
 
 
-
 if __name__ == "__main__":
-
     main()

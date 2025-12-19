@@ -326,7 +326,7 @@ cur.execute("""
 CREATE TABLE IF NOT EXISTS executed_commands_ueba (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP,
-    user_id TEXT,
+    username TEXT,
     source TEXT,
     command TEXT,
     mac_address TEXT,
@@ -385,7 +385,7 @@ cur.close()
 conn.close()
 
 
-def get_command_baseline(user_id, min_samples=20):
+def get_command_baseline(username, min_samples=20):
     """
     Build a baseline profile of user command usage.
     Falls back to SENSITIVE_COMMANDS if not enough history.
@@ -397,10 +397,10 @@ def get_command_baseline(user_id, min_samples=20):
         cur.execute("""
             SELECT command
             FROM executed_commands_ueba
-            WHERE user_id = %s
+            WHERE username = %s
             ORDER BY timestamp DESC
             LIMIT 100;
-        """, (user_id,))
+        """, (username,))
         rows = cur.fetchall()
         cur.close()
         conn.close()
@@ -537,7 +537,7 @@ def main(stop_event=None):
                 cur.execute(
                     """
                     INSERT INTO executed_commands_ueba
-                    (timestamp, user_id, source, command, mac_address, ip_address)
+                    (timestamp, username, source, command, mac_address, ip_address)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     """,
                     (
@@ -554,7 +554,7 @@ def main(stop_event=None):
                 anomaly = detect_command_deviation(cmd.get("user_id"), full_cmd, baseline)
                 if anomaly:
                     anomaly.update({
-                        "user_id": cmd.get("user_id"),
+                        "username": cmd.get("user_id"),
                         "timestamp": cmd.get("timestamp"),
                         "log_text": json.dumps(cmd),
                         "command_text": full_cmd,

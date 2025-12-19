@@ -18,7 +18,7 @@ class STRUCT_ABNORMAL_LOGIN_LOGOUT_TIME:
     event_type: int    # EVENT_TYPE (validate using config["event_type"])
     event_name: int    # EVENT_NAME (validate using config["event_name"])
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT      
+    timestamp: str      
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -32,8 +32,8 @@ class STRUCT_ABNORMAL_LOGIN_LOGOUT_TIME:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config["bool_yes_no"])
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT    
-    abnrml_login_logout: STRING_DATE_TIME_FORMAT  
+    start_time: str    
+    abnrml_login_logout: str  
 
 
 @dataclass
@@ -41,7 +41,7 @@ class STRUCT_ACK:
     incidentId: str
     action: str
     actionStatus: int   # SUCCESS_FAIL_FLAG (validate with config: access_decision or similar)
-    ackTimestamp: STRING_DATE_TIME_FORMAT
+    ackTimestamp: str
     communicationLog: str
 
 
@@ -54,7 +54,7 @@ class STRUCT_ANOMALOUS_APPLICATION_USAGE:
     event_type: int   # INCIDENT_TYPE (validate using config)
     event_name: int   # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -68,7 +68,7 @@ class STRUCT_ANOMALOUS_APPLICATION_USAGE:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     anomalous_application_name: str
 
 
@@ -80,7 +80,7 @@ class STRUCT_ANOMALOUS_CPU_GPU_RAM_CONSP:
     event_type: int   # INCIDENT_TYPE (validate using config)
     event_name: int   # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -94,7 +94,7 @@ class STRUCT_ANOMALOUS_CPU_GPU_RAM_CONSP:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
 
 
 
@@ -106,7 +106,7 @@ class STRUCT_ANOMALOUS_FILE_ACCESS:
     event_type: int      # INCIDENT_TYPE (validate using config["incident_type"])
     event_name: int      # EVENT_NAME (validate using config["event_name"])
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -120,7 +120,7 @@ class STRUCT_ANOMALOUS_FILE_ACCESS:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config["bool_yes_no"])
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     file_name: str
     file_path: str
 
@@ -133,7 +133,7 @@ class STRUCT_ANOMALOUS_USER_SESSION:
     event_type: int   # INCIDENT_TYPE (validate using config)
     event_name: int   # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -147,7 +147,7 @@ class STRUCT_ANOMALOUS_USER_SESSION:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     session_duration: float
 
 
@@ -159,7 +159,7 @@ class STRUCT_BEHAVIOURAL_CHANGE_DETECTION:
     event_type: int   # INCIDENT_TYPE (validate using config)
     event_name: int   # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -173,7 +173,7 @@ class STRUCT_BEHAVIOURAL_CHANGE_DETECTION:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
 
 
 @dataclass
@@ -184,7 +184,7 @@ class STRUCT_BLK_DATA_OP_MONI_DETECTION:
     event_type: int        # INCIDENT_TYPE (validate using config["incident_type"])
     event_name: int        # EVENT_NAME (validate using config["event_name"])
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -198,7 +198,7 @@ class STRUCT_BLK_DATA_OP_MONI_DETECTION:
     ppid: str
     tty: str               # BOOL_YES_NO (validate using config["bool_yes_no"])
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     operation_type: int    # OPERATION_TYPE (validate using config["operation_type"])
     operation_size: float
 
@@ -235,7 +235,7 @@ class STRUCT_COMMAND_EXE_MONI:
     event_type: int    # INCIDENT_TYPE (validate using config)
     event_name: int    # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -249,7 +249,7 @@ class STRUCT_COMMAND_EXE_MONI:
     ppid: str
     tty: str           # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     command_text: str
     command_exe_duration: float
     command_repetition: str  # BOOL_YES_NO (validate using config)
@@ -263,7 +263,7 @@ class STRUCT_DATA_EXFILTRATION_ATTEMPTS_DETECTION:
     event_type: int     # INCIDENT_TYPE (validate using config)
     event_name: int     # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -290,7 +290,7 @@ class STRUCT_DOS_DDOS_DETECTION:
     event_type: int        # INCIDENT_TYPE (validate using config)
     event_name: int        # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -313,7 +313,7 @@ class STRUCT_FILE_SYS_MONI:
     event_type: int        # INCIDENT_TYPE (validate using config)
     event_name: int        # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -327,7 +327,7 @@ class STRUCT_FILE_SYS_MONI:
     ppid: str
     tty: str               # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     operation_type: int    # OPERATION_TYPE (validate using config)
     file_name: str
     file_path: str
@@ -348,7 +348,7 @@ class STRUCT_SOAR_ACK:
 class STRUCT_SOAR_ACTION:
     msg_id: int
     incident_id: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     target_ip: str
     attacker_username: str
@@ -367,7 +367,7 @@ class STRUCT_SSH_BRUTE_FORCE_DETECTION:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -392,7 +392,7 @@ class STRUCT_UEBA_SETTING:
     eventType: int      # EVENT_TYPE (validate using config)
     eventName: int      # EVENT_NAME (validate using config)
     eventReason: str
-    timeStamp: STRING_DATE_TIME_FORMAT
+    timeStamp: str
     attackerIpAddress: str
     attackerUsername: str
     deviceHostname: str
@@ -406,9 +406,9 @@ class STRUCT_UEBA_SETTING:
     ppid: str
     tty: str            # YES_NO_FLAG (validate using config)
     cputime: float
-    sTime: STRING_DATE_TIME_FORMAT
+    sTime: str
     sessionId: str
-    abnoramlLoginTIme: STRING_DATE_TIME_FORMAT
+    abnoramlLoginTIme: str
     anomalousApplicationName: str
     commandExecutionDuration: float
     commandRepitition: str   # YES_NO_FLAG (validate using config)
@@ -436,7 +436,7 @@ class STRUCT_UNUSED_ACC_ACTIVITY:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -450,7 +450,7 @@ class STRUCT_UNUSED_ACC_ACTIVITY:
     ppid: str
     tty: str             # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     session_id: str
     session_duration: float
     dormant_duration: float
@@ -464,7 +464,7 @@ class STRUCT_PRIVILEGED_USER_MONI:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -478,7 +478,7 @@ class STRUCT_PRIVILEGED_USER_MONI:
     ppid: str
     tty: str             # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     user_role: str
 
 
@@ -491,7 +491,7 @@ class STRUCT_PRIVILEGE_ESCALATION_MONI:
     event_type: int            # EVENT_TYPE (validate using config["event_type"])
     event_name: int            # EVENT_NAME (validate using config["event_name"])
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -505,7 +505,7 @@ class STRUCT_PRIVILEGE_ESCALATION_MONI:
     ppid: str
     tty: str                   # BOOL_YES_NO (validate using config["bool_yes_no"])
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     privilege_escalation_attempt: str   # BOOL_YES_NO (validate using config["bool_yes_no"])
     privilege_escalation_cmd: str
     source_role: str
@@ -520,7 +520,7 @@ class STRUCT_LOGIN_FAILURE_MONITORING:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -534,7 +534,7 @@ class STRUCT_LOGIN_FAILURE_MONITORING:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     failure_count: int
 
 @dataclass
@@ -545,7 +545,7 @@ class STRUCT_SUCCESSFUL_LOGIN_AFTER_LOGIN_FAILURE:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -559,7 +559,7 @@ class STRUCT_SUCCESSFUL_LOGIN_AFTER_LOGIN_FAILURE:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     failure_count: int
 
 @dataclass
@@ -570,7 +570,7 @@ class STRUCT_USER_ACCOUNT_HANDLING:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -584,7 +584,7 @@ class STRUCT_USER_ACCOUNT_HANDLING:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     account_action: int   # ACCOUNT_ACTION (Creation/Deletion/Modification – validate using config)
 
 
@@ -596,7 +596,7 @@ class STRUCT_LOGGING_FACILITY_STATUS_CHANGE:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -610,7 +610,7 @@ class STRUCT_LOGGING_FACILITY_STATUS_CHANGE:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     old_logging_facility_status: int   # LOGGING_FACILITY_STATUS (validate using config)
     new_logging_facility_status: int   # LOGGING_FACILITY_STATUS (validate using config)
 
@@ -623,7 +623,7 @@ class STRUCT_AGENT_STATUS_MONITORING:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -637,7 +637,7 @@ class STRUCT_AGENT_STATUS_MONITORING:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
+    start_time: str
     agent_id: str
 
 @dataclass
@@ -648,7 +648,7 @@ class STRUCT_ANOMALOUS_CPU_CONSUMPTION:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -662,8 +662,8 @@ class STRUCT_ANOMALOUS_CPU_CONSUMPTION:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
-    anomalous_cpu_usage_time: STRING_DATE_TIME_FORMAT
+    start_time: str
+    anomalous_cpu_usage_time: str
     cpu_anomalous_usage: float
 
 
@@ -675,7 +675,7 @@ class STRUCT_ANOMALOUS_GPU_CONSUMPTION:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -689,8 +689,8 @@ class STRUCT_ANOMALOUS_GPU_CONSUMPTION:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
-    anomalous_gpu_usage_time: STRING_DATE_TIME_FORMAT
+    start_time: str
+    anomalous_gpu_usage_time: str
     gpu_anomalous_usage: float
 
 
@@ -702,7 +702,7 @@ class STRUCT_ANOMALOUS_RAM_CONSUMPTION:
     event_type: int      # INCIDENT_TYPE (validate using config)
     event_name: int      # EVENT_NAME (validate using config)
     event_reason: str
-    timestamp: STRING_DATE_TIME_FORMAT
+    timestamp: str
     attacker_ip_address: str
     attacker_username: str
     device_hostname: str
@@ -716,6 +716,6 @@ class STRUCT_ANOMALOUS_RAM_CONSUMPTION:
     ppid: str
     tty: str              # BOOL_YES_NO (validate using config)
     cpu_time: float
-    start_time: STRING_DATE_TIME_FORMAT
-    anomalous_ram_usage_time: STRING_DATE_TIME_FORMAT
+    start_time: str
+    anomalous_ram_usage_time: str
     ram_anomalous_usage: float

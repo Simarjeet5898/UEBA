@@ -95,38 +95,21 @@ def main():
 
     threads = []
 
-    # # threads.append(_spawn("kafka_consumer.udp_dispatcher", "UDP Dispatcher"))
-    # threads.append(_spawn("kafka_consumer.application_usage_consumer_udp", "Application Usage Consumer", delay_s=0.5))
-    # threads.append(_spawn("kafka_consumer.authentication_monitoring_consumer_udp", "Authentication Monitoring Consumer", delay_s=0.6))
-    # threads.append(_spawn("kafka_consumer.process_monitoring_consumer_udp", "Process Monitoring Consumer", delay_s=0.7))
-    # threads.append(_spawn("kafka_consumer.SRU_consumer_udp", "SRU Consumer", delay_s=0.8))
-    # threads.append(_spawn("kafka_consumer.login_events_consumer_udp", "Login Events Consumer", delay_s=0.2))
-    # threads.append(_spawn("kafka_consumer.connected_entities_consumer_udp", "Connected Entities Consumer", delay_s=0.3))
-    # threads.append(_spawn("kafka_consumer.file_sys_monitoring_consumer_udp", "File System Monitoring Consumer", delay_s=0.4))
-    # threads.append(_spawn("kafka_consumer.clients_heartbeat_consumer_udp", "Heartbeat Consumer", delay_s=0.9))
-    # threads.append(_spawn("kafka_consumer.priviledge_user_monitoring_consumer_udp", "Privileged User Consumer", delay_s=1.0))
+    threads.append(_spawn("kafka_consumer.udp_dispatcher", "UDP Dispatcher"))
+    threads.append(_spawn("kafka_consumer.application_usage_consumer_udp", "Application Usage Consumer", delay_s=0.5))
+    threads.append(_spawn("kafka_consumer.authentication_monitoring_consumer_udp", "Authentication Monitoring Consumer", delay_s=0.6))
+    threads.append(_spawn("kafka_consumer.process_monitoring_consumer_udp", "Process Monitoring Consumer", delay_s=0.7))
+    threads.append(_spawn("kafka_consumer.SRU_consumer_udp", "SRU Consumer", delay_s=0.8))
+    threads.append(_spawn("kafka_consumer.login_events_consumer_udp", "Login Events Consumer", delay_s=0.2))
+    threads.append(_spawn("kafka_consumer.connected_entities_consumer_udp", "Connected Entities Consumer", delay_s=0.3))
+    threads.append(_spawn("kafka_consumer.file_sys_monitoring_consumer_udp", "File System Monitoring Consumer", delay_s=0.4))
+    threads.append(_spawn("kafka_consumer.clients_heartbeat_consumer_udp", "Heartbeat Consumer", delay_s=0.9))
+    threads.append(_spawn("kafka_consumer.priviledge_user_monitoring_consumer_udp", "Privileged User Consumer", delay_s=1.0))
 
 
 
-    # # Dashboard API → separate log file outside "consumers"
-    # threads.append(_spawn("api_server", "UEBA Dashboard API", delay_s=1.2, is_dashboard=True))
-
-    # threads.append(_spawn("kafka_consumer.udp_dispatcher", "UDP Dispatcher"))
-    threads.append(_spawn("kafka_consumer.application_usage_consumer_udp", "Application Usage Consumer"))
-    threads.append(_spawn("kafka_consumer.authentication_monitoring_consumer_udp", "Authentication Monitoring Consumer"))
-    threads.append(_spawn("kafka_consumer.process_monitoring_consumer_udp", "Process Monitoring Consumer"))
-    threads.append(_spawn("kafka_consumer.SRU_consumer_udp", "SRU Consumer"))
-    threads.append(_spawn("kafka_consumer.login_events_consumer_udp", "Login Events Consumer"))
-    threads.append(_spawn("kafka_consumer.connected_entities_consumer_udp", "Connected Entities Consumer"))
-    threads.append(_spawn("kafka_consumer.file_sys_monitoring_consumer_udp", "File System Monitoring Consumer"))
-    threads.append(_spawn("kafka_consumer.clients_heartbeat_consumer_udp", "Heartbeat Consumer"))
-    threads.append(_spawn("kafka_consumer.priviledge_user_monitoring_consumer_udp", "Privileged User Consumer"))
-
-    threads.append(_spawn("api_server", "UEBA Dashboard API", is_dashboard=True))
-
-    # Start dispatcher last, with a small delay so consumers are listening before backlog drains
-    threads.append(_spawn("kafka_consumer.udp_dispatcher", "UDP Dispatcher", delay_s=2.0))
-
+    # Dashboard API → separate log file outside "consumers"
+    threads.append(_spawn("api_server", "UEBA Dashboard API", delay_s=1.2, is_dashboard=True))
 
     def handle_signal(sig, frame):
         master_log.info(f"[SHUTDOWN] Signal {sig} received. Stopping…")

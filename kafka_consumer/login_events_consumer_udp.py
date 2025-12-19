@@ -139,6 +139,7 @@ def init_db():
                 logout_time TEXT,
                 session_duration_seconds INTEGER,
                 last_login_time TEXT,
+                user_type TEXT,
                 hostname TEXT,
                 source_os TEXT,
                 remote_ip TEXT,
@@ -179,6 +180,7 @@ def user_session_data(event):
                 logout_time TEXT,
                 session_duration_seconds INTEGER,
                 last_login_time TEXT,
+                user_type TEXT,
                 hostname TEXT,
                 source_os TEXT,
                 remote_ip TEXT,
@@ -231,6 +233,7 @@ def user_session_data(event):
                         logout_time = NULL,
                         session_duration_seconds = NULL,
                         last_login_time = %s,
+                        user_type = %s,
                         source_os = %s,
                         remote_ip = %s,
                         lan_ip = %s,
@@ -246,6 +249,7 @@ def user_session_data(event):
                     event.get("timestamp"),
                     login_time,
                     event.get("last_login_time"),
+                    event.get("user_type","unknown"),
                     event.get("source_os"),
                     event.get("remote_ip", "Unknown"),
                     event.get("lan_ip", "Unknown"),
@@ -264,12 +268,12 @@ def user_session_data(event):
                 cur.execute("""
                     INSERT INTO user_session_tracking_ueba
                     (timestamp, username, event_type, login_time, logout_time,
-                     session_duration_seconds, last_login_time, hostname,
+                     session_duration_seconds, last_login_time, user_type, hostname,
                      source_os, remote_ip, lan_ip, auth_type, active_mac,
                      mac_addresses, public_ip, geo_country, geo_region,
                      geo_city, snapshot_date)
                     VALUES (%s, %s, 'login', %s, NULL,
-                            NULL, %s, %s,
+                            NULL, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, %s);
                 """, (
@@ -277,6 +281,7 @@ def user_session_data(event):
                     username,
                     login_time,
                     event.get("last_login_time"),
+                    event.get("user_type", "unknown"),
                     hostname,
                     event.get("source_os"),
                     event.get("remote_ip", "Unknown"),

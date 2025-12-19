@@ -49,6 +49,8 @@ import select
 from collections import defaultdict
 import signal
 import atexit
+import pwd
+import grp
 
 
 ###################UEBA_1:: User Session Tracking########################
@@ -65,6 +67,46 @@ SCAN_INTERVAL= config["SCAN_INTERVAL"]
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+def get_privileged_users():
+    privileged_users = set()
+
+    # 1. UID 0 (root)
+    for user in pwd.getpwall():
+        if user.pw_uid == 0:
+            privileged_users.add(user.pw_name)
+
+    # 2. sudo group members
+    try:
+        sudo_group = grp.getgrnam("sudo")
+        privileged_users.update(sudo_group.gr_mem)
+    except KeyError:
+        pass
+
+    # 3. explicit sudoers entries
+    sudoers_files = ["/etc/sudoers"]
+    sudoers_dir = "/etc/sudoers.d"
+
+    if os.path.isdir(sudoers_dir):
+        sudoers_files.extend(
+            os.path.join(sudoers_dir, f) for f in os.listdir(sudoers_dir)
+        )
+
+    user_pattern = re.compile(r"^([a-zA-Z0-9._-]+)\s+ALL")
+
+    for file_path in sudoers_files:
+        try:
+            with open(file_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or line.startswith("%"):
+                        continue
+                    match = user_pattern.match(line)
+                    if match:
+                        privileged_users.add(match.group(1))
+        except Exception:
+            pass
+
+    return sorted(privileged_users)
 
 def normalize_ip(ip):
     if not ip or ip in ("Unknown", "localhost", "127.0.0.1", "127.0.1.1"):
@@ -274,6 +316,7 @@ shutdown_handled = False  # Global flag (ensure this is at the top with your glo
 
 def handle_shutdown_signal(signum=None, frame=None, exit_after=True):
     global LOGIN_STATE, shutdown_handled
+    priv_user = get_privileged_users()
     if shutdown_handled:
         return
     shutdown_handled = True
@@ -293,7 +336,7 @@ def handle_shutdown_signal(signum=None, frame=None, exit_after=True):
         # geo_info = get_geolocation()
         source_mac = get_mac_address(remote_ip)
         source_hostname = resolve_hostname(remote_ip)
-
+        user_type = "ADMIN" if username in priv_user else "NORMAL"
         msg = {
             "topic": "login-events",
             "event_type": "logout",
@@ -305,6 +348,7 @@ def handle_shutdown_signal(signum=None, frame=None, exit_after=True):
             "timestamp": now_str,
             "remote_ip": remote_ip,
             "auth_type": auth_type,
+            "user_type":user_type,
             "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
             "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
             **system_info,
@@ -335,6 +379,7 @@ def main():
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             current_users = get_current_users()
             recent_remote_ips = get_recent_remote_logins()
+            priv_user = get_privileged_users()
 
             for username, (started_epoch, remote_ip, terminal) in current_users.items():
                 terminal = terminal or ""
@@ -350,7 +395,7 @@ def main():
                     auth_type = "gui"
                 else:
                     auth_type = "local"
-
+                user_type = "ADMIN" if username in priv_user else "NORMAL"
                 # session identity (prevents collisions across tty/seat/ip)
                 # session_key = (username, terminal, remote_ip or "")
                 session_key = make_session_key(username, terminal, remote_ip)
@@ -381,6 +426,7 @@ def main():
                         "timestamp": now_str,
                         "remote_ip": remote_ip,
                         "auth_type": auth_type,
+                        "user_type": user_type,
                         "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
                         "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
                         **system_info,
@@ -431,6 +477,7 @@ def main():
                         "timestamp": now_str,
                         "remote_ip": remote_ip,
                         "auth_type": auth_type,
+                        "user_type":user_type,
                         "source_mac": source_mac if source_mac not in ("", "Unknown") else None,
                         "source_hostname": source_hostname if source_hostname not in ("", "Unknown") else None,
                         **system_info,
@@ -571,7 +618,7 @@ if __name__ == "__main__":
 
     
     # Optional: also register for clean exit when script ends
-    atexit.register(handle_shutdown_signal, None, None)
+    # atexit.register(handle_shutdown_signal, None, None)
     # threading.Thread(target=watch_auth_log, daemon=True).start()
 
     main()

@@ -94,7 +94,7 @@ def main(stop_event=None):
             continue
 
         if "privileged_users" not in payload:
-            log.error(f"Missing privileged_users field: {payload}")
+            # log.error(f"Missing privileged_users field: {payload}")
             continue
 
         users      = payload["privileged_users"]

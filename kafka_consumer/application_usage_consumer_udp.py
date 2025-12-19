@@ -225,6 +225,8 @@ def create_latency_monitoring_table(conn):
             network_bytes_recv BIGINT,
             context_switches BIGINT,
             system_temperature REAL,
+            hostname TEXT,
+            mac_address TEXT,
 
             -- NEW (IMPORTANT)
             aggregation_type TEXT DEFAULT 'realtime',
@@ -408,6 +410,8 @@ def insert_latency_record(conn, record):
             context_switches,
             system_temperature,
             timestamp,
+            hostname,
+            mac_address,
             aggregation_type       -- ADD THIS
         ) VALUES (
             %(kernel_worst_latency_ms)s,
@@ -430,6 +434,8 @@ def insert_latency_record(conn, record):
             %(context_switches)s,
             %(system_temperature)s,
             %(timestamp)s,
+            %(hostname)s,
+            %(mac_address)s,
             %(aggregation_type)s     -- ADD THIS
         );
     """
@@ -540,6 +546,8 @@ def main(stop_event=None):
             "rt_max_latency_us":  metrics["realtime_latency"].get("max_latency_us"),
 
             "username":           metrics.get("username"),
+            "mac_address":        metrics.get("mac_address"),
+            "hostname":           metrics.get("hostname"),
             "cpu_percent":        metrics.get("cpu_usage"),
             "memory_percent":     metrics.get("memory_usage"),
             "startup_latency":    metrics.get("startup_latency"),
